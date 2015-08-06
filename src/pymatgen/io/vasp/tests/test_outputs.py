@@ -20,7 +20,7 @@ import json
 import numpy as np
 import warnings
 
-from pymatgen.io.vaspio.vasp_output import Chgcar, Locpot, Oszicar, Outcar, \
+from pymatgen.io.vasp.outputs import Chgcar, Locpot, Oszicar, Outcar, \
     Vasprun, Procar, Xdatcar, Dynmat
 from pymatgen import Spin, Orbital, Lattice, Structure
 from pymatgen.entries.compatibility import MaterialsProjectCompatibility
@@ -41,6 +41,8 @@ class VasprunTest(unittest.TestCase):
         filepath = os.path.join(test_dir, 'vasprun.xml')
         vasprun = Vasprun(filepath, parse_potcar_file=False)
 
+        #Test NELM parsing.
+        self.assertEqual(vasprun.parameters["NELM"], 60)
         #test pdos parsing
 
         pdos0 = vasprun.complete_dos.pdos[vasprun.final_structure[0]]
@@ -484,7 +486,7 @@ class XdatcarTest(unittest.TestCase):
 class DynmatTest(unittest.TestCase):
 
     def test_init(self):
-        # nosetests pymatgen/io/vaspio/tests/test_vasp_output.py:DynmatTest.test_init
+        # nosetests pymatgen/io/vasp/tests/test_outputs.py:DynmatTest.test_init
         filepath = os.path.join(test_dir, 'DYNMAT')
         d = Dynmat(filepath)
         self.assertEqual(d.nspecs, 2)
