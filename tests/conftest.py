@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import tempfile
 from typing import TYPE_CHECKING
 
@@ -18,3 +19,9 @@ def setup_teardown() -> Generator:
         os.chdir(tmpdir)
         yield tmpdir
         os.chdir(cwd)
+
+
+@pytest.fixture(autouse=True)
+def test_files_dir() -> Path:
+    return Path(__file__).parent.parent / "pymatgen-test-files"
+    
