@@ -6,6 +6,11 @@ nav_order: 4
 
 # Changelog
 
+## v2026.4.7
+
+- Phase diagram, reaction calculator and chempot diagrams are added to pymatgen-core.
+- PR #15 VaspInputSet: Display a warning when changing ISMEAR (by @yantar92)
+
 ## v2026.3.9
 
 - PR #5 Add lobster io and electronic_structure/cohp.py module with history (by @naik-aakash)
