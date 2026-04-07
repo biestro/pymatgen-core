@@ -1152,6 +1152,7 @@ class EntrySet(collections.abc.MutableSet, MSONable):
             List of Elements, List of PDEntries
         """
         from pymatgen.analysis.phase_diagram import PDEntry
+
         with open(filename, encoding="utf-8") as file:
             reader = csv.reader(file, delimiter=",", quotechar='"', quoting=csv.QUOTE_MINIMAL)
             entries = []
