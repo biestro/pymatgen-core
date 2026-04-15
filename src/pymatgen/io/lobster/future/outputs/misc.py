@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from typing import Literal
 
     from numpy import floating
+    from numpy.typing import NDArray
 
     from pymatgen.core.structure import Structure
     from pymatgen.io.lobster.future.types import LobsterMatrixData
@@ -76,11 +77,11 @@ class Wavefunction(LobsterFile):
 
         line_parts = next(lines_generator).split()
 
-        self.grid: tuple[int, int, int] = [
+        self.grid: tuple[int, int, int] = (
             int(line_parts[7]),
             int(line_parts[8]),
             int(line_parts[9]),
-        ]
+        )
         n_points = self.grid[0] * self.grid[1] * self.grid[2]
 
         self.points = np.empty((n_points, 3), dtype=np.float64)
@@ -308,11 +309,11 @@ class SitePotentials(LobsterFile):
                 self.madelung_energies_mulliken = float(madelung_energies.group(1))
                 self.madelung_energies_loewdin = float(madelung_energies.group(2))
 
-            if data := re.search(r"(\d+)\s+([a-zA-Z]{1,2})\s+(\S+)\s+(\S+)", line):
-                data = data.groups()
-                self.centers.append(data[1] + data[0])
-                self.site_potentials_mulliken.append(float(data[2]))
-                self.site_potentials_loewdin.append(float(data[3]))
+            if m := re.search(r"(\d+)\s+([a-zA-Z]{1,2})\s+(\S+)\s+(\S+)", line):
+                groups = m.groups()
+                self.centers.append(groups[1] + groups[0])
+                self.site_potentials_mulliken.append(float(groups[2]))
+                self.site_potentials_loewdin.append(float(groups[3]))
 
     @classmethod
     def get_default_filename(cls) -> str:
@@ -423,16 +424,16 @@ class LobsterMatrices(LobsterFile):
         header_regex_pattern = r"kpoint\s+(\d+)" if self.matrix_type == "overlap" else r"(\d+)\s+kpoint\s+(\d+)"
 
         current_kpoint, current_spin = None, None
-        multiplier = 1
+        multiplier: complex = 1
 
         lines_generator = self.iterate_lines()
         for line in lines_generator:
-            if header_match := re.search(header_regex_pattern, line):
-                header_match = header_match.groups()
+            if hm := re.search(header_regex_pattern, line):
+                header_groups = hm.groups()
                 if self.matrix_type != "overlap":
-                    current_spin = Spin.up if header_match[0] == "1" else Spin.down
+                    current_spin = Spin.up if header_groups[0] == "1" else Spin.down
 
-                current_kpoint = header_match[-1]
+                current_kpoint = header_groups[-1]
             elif "real parts" in line.lower():
                 multiplier = 1
             elif "imag parts" in line.lower():
@@ -557,8 +558,12 @@ class POLARIZATION(LobsterFile):
                 self.rel_mulliken_pol_vector[cleanlines[0]] = float(cleanlines[1])
                 self.rel_loewdin_pol_vector[cleanlines[0]] = float(cleanlines[2])
             if cleanlines and len(cleanlines) == 4:
-                self.rel_mulliken_pol_vector[cleanlines[0].replace(":", "")] = cleanlines[1].replace("\u03bc", "u")
-                self.rel_loewdin_pol_vector[cleanlines[2].replace(":", "")] = cleanlines[3].replace("\u03bc", "u")
+                self.rel_mulliken_pol_vector[cleanlines[0].replace(":", "")] = float(
+                    cleanlines[1].replace("\u03bc", "u")
+                )
+                self.rel_loewdin_pol_vector[cleanlines[2].replace(":", "")] = float(
+                    cleanlines[3].replace("\u03bc", "u")
+                )
 
     @classmethod
     def get_default_filename(cls) -> str:
@@ -592,7 +597,7 @@ class BWDF(LobsterFile):
             filename (PathLike): The BWDF file from LOBSTER, typically "BWDF.lobster"
                 or "BWDFCOHP.lobster".
         """
-        self.bwdf = {}
+        self.bwdf: dict[Spin, NDArray[np.float64]] = {}
         self.centers = np.array([])
         self.data = np.array([[]])
 

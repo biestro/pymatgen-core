@@ -314,7 +314,7 @@ class BaseLammpsSetGenerator(InputGenerator):
             file: str | None = None
             if ensemble in ["nve", "nvt", "npt", "nph"]:
                 file = "md.template"
-            elif ensemble in ["minimize"]:
+            elif ensemble == "minimize":
                 file = "minimization.template"
             if not file:
                 raise ValueError(
@@ -539,7 +539,7 @@ class BaseLammpsSetGenerator(InputGenerator):
                         settings_dict.update({f"{key}": value, f"{key}_flag": f"{key}"})
                     if key in FF_COEFF_KEYS and value:
                         FF_string += f"{key} {value}\n"
-                    if key in ["species"]:
+                    if key == "species":
                         # makes species specified in FF dict take precedence
                         species = " ".join(value) if isinstance(value, list) else value
                     else:

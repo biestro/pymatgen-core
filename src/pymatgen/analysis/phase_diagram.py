@@ -10,7 +10,7 @@ import re
 import warnings
 from collections import defaultdict
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, cast, overload
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -87,7 +87,7 @@ class PDEntry(Entry):
                 to the reduced chemical formula.
             attribute: Optional attribute of the entry. Must be MSONable.
         """
-        super().__init__(composition, energy)
+        super().__init__(cast("Composition | str | dict[str, float]", composition), energy)
         self.name = name or self.reduced_formula
         self.attribute = attribute
 
