@@ -6,10 +6,23 @@ nav_order: 4
 
 # Changelog
 
+## 2026.4.16
+
+- PR #10 Updates to LAMMPS input set generators for compatibility with new atomate2 workflows (by @vir-k01)
+- PR #16 `Vasprun` XML parsing (`io.vasp.outputs`): use explicit lxml tags to reduce overhead (by @wladerer)
+- PR #22 `BztPlotter.plot_props`: validate band-property keys early to avoid `AttributeError` on unsupported properties (by @deepanshuaggarwal51)
+- Dependabot: bump orjson (PR #6), requests (PR #9), and pillow (PR #23)
+- PR #24 Fix incorrect oriented unit cell from `SlabGenerator.get_slab` when using constrained OUC primitive matching (by @ThomasWarford)
+- PR #25 Lazy-import `matplotlib.pyplot` in `structure_analyzer` (by @lan496)
+- PR #26 Fix deserialization of legacy phase diagram serialized data (by @esoteric-ephemera)
+- VASP input sets: pass `kpath_kwargs` into `HighSymmKpath` when building k-points from line-density configurations
+- Linting, typing, and mypy cleanups
+
 ## v2026.4.7
 
-- Phase diagram, reaction calculator and chempot diagrams are added to pymatgen-core.
-- PR #15 VaspInputSet: Display a warning when changing ISMEAR (by @yantar92)
+- Phase diagram, reaction calculator, and chempot diagram modules are added to pymatgen-core (`analysis.phase_diagram`, `analysis.reaction_calculator`, `analysis.chempot_diagram`), with tests and fixture data.
+- `pymatgen.core.entries`: add `group_entries_by_structure` and related multiprocessing helpers for grouping `ComputedStructureEntry` objects by structural similarity (supports phase diagram workflows).
+- PR #15 VaspInputSet: display a warning when changing `ISMEAR` (by @yantar92)
 
 ## v2026.3.9
 
