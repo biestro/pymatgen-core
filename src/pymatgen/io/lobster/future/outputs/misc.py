@@ -3,7 +3,7 @@ from __future__ import annotations
 import itertools
 import re
 from itertools import islice
-from typing import TYPE_CHECKING, Any, ClassVar, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
 import numpy as np
 
@@ -232,6 +232,10 @@ class Wavefunction(LobsterFile):
         """"""
         instance = super().from_dict(d)
 
+        instance.grid = cast(
+            "tuple[int, int, int]",
+            tuple(int(x) for x in instance.grid),
+        )
         instance.points = np.asarray(instance.points, dtype=np.float64)
         instance.distances = np.asarray(instance.distances, dtype=np.float64)
         instance.reals = np.asarray(instance.reals, dtype=np.float64)

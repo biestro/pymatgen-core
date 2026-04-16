@@ -32,6 +32,7 @@ SpeciesLike: TypeAlias = str | Element | Species | DummySpecies
 
 # Things that can be cast to a Composition
 CompositionLike: TypeAlias = str | Element | Species | DummySpecies | dict | Composition
+
 # Entry or any of its subclasses or dicts that can be unpacked into any of them
 EntryLike: TypeAlias = Union[
     dict[str, Any],
@@ -39,9 +40,11 @@ EntryLike: TypeAlias = Union[
     "PDEntry",
     "ComputedEntry",
     "ComputedStructureEntry",
+    "ExpEntry",  # type: ignore[name-defined]  # noqa: F821
     "TransformedPDEntry",
     "GrandPotPDEntry",
     "CostEntry",
+    "GibbsComputedStructureEntry",  # type: ignore[name-defined]  # noqa: F821
 ]
 
 
