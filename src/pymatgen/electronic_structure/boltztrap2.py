@@ -1189,8 +1189,7 @@ class BztPlotter:
         if self.bzt_interp is None:
             raise ValueError("BztInterpolator not present")
 
-        sbs = self.bzt_interp.get_band_structure(
-            kpaths=kpaths, kpoints_lbls_dict=kpoints_lbls_dict, density=density)
+        sbs = self.bzt_interp.get_band_structure(kpaths=kpaths, kpoints_lbls_dict=kpoints_lbls_dict, density=density)
 
         return BSPlotter(sbs)
 
