@@ -1179,23 +1179,42 @@ class BztPlotter:
 
         return fig if ax is None else ax
 
-    def plot_bands(self):
+    def plot_bands(
+        self,
+        kpaths=None,
+        kpoints_lbls_dict=None,
+        density=20,
+    ) -> BSPlotter:
         """Plot a band structure on symmetry line using BSPlotter()."""
         if self.bzt_interp is None:
             raise ValueError("BztInterpolator not present")
 
-        sbs = self.bzt_interp.get_band_structure()
+        sbs = self.bzt_interp.get_band_structure(
+            kpaths=kpaths, kpoints_lbls_dict=kpoints_lbls_dict, density=density)
 
-        return BSPlotter(sbs).get_plot()
+        return BSPlotter(sbs)
 
-    def plot_dos(self, T=None, npoints=10000):
-        """Plot the total Dos using DosPlotter()."""
+    def plot_dos(
+        self,
+        T: float | None = None,
+        npoints: int = 10000,
+        label: str = "Total",
+        **kwargs,
+    ) -> DosPlotter:
+        """Plot the total Dos using DosPlotter().
+
+        Args:
+            T: parameter used to smooth the Dos
+            npoints: number of energy points of the Dos
+            label: a unique label for the Dos
+            kwargs: arguments passed to DosPlotter()
+        """
         if self.bzt_interp is None:
             raise ValueError("BztInterpolator not present")
 
         tdos = self.bzt_interp.get_dos(T=T, npts_mu=npoints)
-        dosPlotter = DosPlotter()
-        dosPlotter.add_dos("Total", tdos)
+        dosPlotter = DosPlotter(**kwargs)
+        dosPlotter.add_dos(label=label, dos=tdos)
 
         return dosPlotter
 
