@@ -744,6 +744,11 @@ class VaspInputSet(InputGenerator, abc.ABC):
         # > 0.5 (2 reciprocal Angstrom). An error handler in Custodian is available to
         # correct overly large KSPACING values (small number of kpoints) if necessary.
         if kpoints is not None and np.prod(kpoints.kpts) < 4 and incar.get("ISMEAR", 0) == -5:
+            warnings.warn(
+                "Too few KPOINTS for tetrahedron method (ISMEAR=-5). Replacing with ISMEAR=0.",
+                BadInputSetWarning,
+                stacklevel=2,
+            )
             incar["ISMEAR"] = 0
 
         if incar.get("KSPACING", 0) > 0.5 and incar.get("ISMEAR", 0) == -5:
@@ -895,7 +900,7 @@ class VaspInputSet(InputGenerator, abc.ABC):
         zero_weighted_kpoints = None
         if kconfig.get("zero_weighted_line_density"):
             # zero_weighted k-points along line mode path
-            kpath = HighSymmKpath(self.structure)
+            kpath = HighSymmKpath(self.structure, **kconfig.get("kpath_kwargs", {}))
             frac_k_points, k_points_labels = kpath.get_kpoints(
                 line_density=kconfig["zero_weighted_line_density"],
                 coords_are_cartesian=False,
