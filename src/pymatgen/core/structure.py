@@ -3174,7 +3174,7 @@ class IStructure(SiteCollection, MSONable):
 
             if kwargs:
                 warnings.warn(
-                    f"kwargs {set(kwargs)} cannot be validated for fleur-inpgen (external package) and will be passed through as-is.",
+                    f"kwargs {set(kwargs)} cannot be validated for fleur-inpgen and will be passed through as-is.",
                     stacklevel=2,
                 )
             struct = FleurInput.from_string(input_string, inpgen_input=True, **kwargs).structure
