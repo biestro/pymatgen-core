@@ -5896,7 +5896,8 @@ class Waveder(MSONable):
         Returns:
             a float value
         """
-        return self.cder_real[band_i, band_j, kpoint, spin, cart_dir] + 1j * self.cder_imag[band_i, band_j, kpoint, spin, cart_dir]
+        idx = (band_i, band_j, kpoint, spin, cart_dir)
+        return self.cder_real[idx] + 1j * self.cder_imag[idx]
 
 
 @dataclass
