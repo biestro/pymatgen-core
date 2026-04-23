@@ -54,6 +54,7 @@ except ImportError:
     h5py = None
 
 TEST_DIR = f"{TEST_FILES_DIR}/io/vasp"
+LOCAL_VASPWAVE_TEST_DIR = Path("/Users/supercgor/Downloads/vasp_test")
 
 
 class TestVasprun(MatSciTest):
@@ -2384,30 +2385,218 @@ class TestVaspout(MatSciTest):
 
 @pytest.mark.skipif(condition=h5py is None, reason="h5py must be installed to use the .Vaspwave class.")
 class TestVaspwave(MatSciTest):
+    @pytest.fixture(autouse=True)
+    def setup_method(self):
+        self.local_gamma_dir = LOCAL_VASPWAVE_TEST_DIR / "gamma-only"
+        self.local_std_dir = LOCAL_VASPWAVE_TEST_DIR / "std"
+
+    @staticmethod
+    def _write_minimal_vaspwave_h5(filename: str | Path) -> None:
+        with h5py.File(filename, "w") as h5_file:
+            version = h5_file.create_group("version")
+            version.create_dataset("major", data=6)
+            version.create_dataset("minor", data=6)
+            version.create_dataset("patch", data=0)
+
+            structure = h5_file.create_group("structure")
+            positions = structure.create_group("positions")
+            positions.create_dataset("direct_coordinates", data=1)
+            positions.create_dataset("ion_sha256", data=np.array([b"dummy_sha"], dtype="S64"))
+            positions.create_dataset("ion_types", data=np.array([b"H"], dtype="S2"))
+            positions.create_dataset("lattice_vectors", data=np.diag([2.0, 3.0, 4.0]))
+            positions.create_dataset("number_ion_types", data=[2])
+            positions.create_dataset("position_ions", data=[[0.25, 0.5, 0.75], [0.75, 0.5, 0.25]])
+            positions.create_dataset("scale", data=1.0)
+            positions.create_dataset("system", data=np.bytes_("minimal_vaspwave"))
+
+            charge = h5_file.create_group("charge")
+            charge.create_dataset("grid", data=[2, 3, 4])
+            charge.create_dataset("charge", data=np.arange(24, dtype=float).reshape(4, 3, 2)[None, ...])
+
+            locpot = h5_file.create_group("locpot")
+            locpot.create_dataset("grid", data=[2, 3, 4])
+            locpot.create_dataset("total", data=(100.0 + np.arange(24, dtype=float)).reshape(4, 3, 2)[None, ...])
+
+            wave = h5_file.create_group("wave")
+            wave.create_dataset("rispin", data=1.0)
+            wave.create_dataset("rnkpts", data=1.0)
+            wave.create_dataset("rnb_tot", data=2.0)
+            wave.create_dataset("enmax", data=20.0)
+            wave.create_dataset("efermi", data=5.5)
+            wave.create_dataset("amat", data=np.diag([2.0, 3.0, 4.0]))
+
+            spin_1 = wave.create_group("spin_1")
+            kpoint_1 = spin_1.create_group("kpoint_1")
+            kpoint_1.create_dataset("num_planewaves", data=3)
+            kpoint_1.create_dataset("vkpt", data=[0.0, 0.0, 0.0])
+            kpoint_1.create_dataset("fertot", data=[1.0, 0.0])
+            kpoint_1.create_dataset("celtot", data=[[1.5, 0.0], [2.5, -0.25]])
+            wave_data = kpoint_1.create_dataset(
+                "wave",
+                data=np.array(
+                    [
+                        [[1.0, 0.0], [0.5, 0.25], [0.0, 0.0]],
+                        [[0.0, 1.0], [0.25, -0.5], [0.0, 0.0]],
+                    ],
+                    dtype=np.float32,
+                ),
+            )
+            wave_data.attrs["dtype"] = "complex"
+
     def test_class_available(self):
         assert Vaspwave is not None
 
-    def test_gamma_only_interface_stub(self):
-        vaspwave = Vaspwave.__new__(Vaspwave)
-        vaspwave.spin = 1
-        vaspwave.nk = 1
-        vaspwave._gamma_only = True
+    def test_parse_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
 
-        with pytest.raises(NotImplementedError, match="Gamma-only fft_mesh"):
-            vaspwave.fft_mesh(0, 0)
+        vaspwave = Vaspwave(filename)
 
-        with pytest.raises(NotImplementedError, match="Gamma-only evaluate_wavefunc"):
-            vaspwave.evaluate_wavefunc(0, 0, np.zeros(3))
+        assert vaspwave.spin == 1
+        assert vaspwave.nk == 1
+        assert vaspwave.nb == 2
+        assert vaspwave.encut == approx(20.0)
+        assert vaspwave.efermi == approx(5.5)
+        assert_allclose(vaspwave.a, np.diag([2.0, 3.0, 4.0]))
+        assert vaspwave.vol == approx(24.0)
+        assert_allclose(vaspwave.b, np.diag([np.pi, 2 * np.pi / 3, np.pi / 2]))
+        assert len(vaspwave.kpoints) == 1
+        assert_allclose(vaspwave.kpoints[0], [0.0, 0.0, 0.0])
+        assert len(vaspwave.band_energy) == 1
+        assert_allclose(vaspwave.band_energy[0], [[1.5, 0.0, 1.0], [2.5, -0.25, 0.0]])
+        assert vaspwave.num_planewaves == [3]
+        assert vaspwave.initial_structure.reduced_formula == "H2"
+        assert vaspwave.final_structure == vaspwave.initial_structure
+        assert_allclose(vaspwave.initial_structure.lattice.matrix, np.diag([2.0, 3.0, 4.0]))
+        assert_allclose(vaspwave.initial_structure.frac_coords, [[0.25, 0.5, 0.75], [0.75, 0.5, 0.25]])
+        assert vaspwave._gamma_only is True
+        assert vaspwave.vasp_type == "gam"
+        assert vaspwave.version == {"major": 6, "minor": 6, "patch": 0}
 
-        with pytest.raises(NotImplementedError, match="Gamma-only get_parchg"):
-            vaspwave.get_parchg(Poscar.from_file(f"{VASP_IN_DIR}/POSCAR"), 0, 0)
+    def test_get_band_coeffs_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
 
-        with pytest.raises(NotImplementedError, match="Gamma-only write_unks"):
-            vaspwave.write_unks(".")
+        vaspwave = Vaspwave(filename)
+        coeffs = vaspwave._get_band_coeffs(0, 0, 1)
+
+        assert_allclose(
+            coeffs,
+            np.array(
+                [
+                    1j,
+                    (0.25 - 0.5j) / np.sqrt(2),
+                    0.0 + 0.0j,
+                    (0.25 + 0.5j) / np.sqrt(2),
+                    0.0 - 0.0j,
+                ],
+                dtype=np.complex128,
+            ),
+        )
+
+    def test_build_band_energy_array(self):
+        kpoint_data = {
+            "celtot": [[1.5, 0.0], [2.5, -0.25]],
+            "fertot": [1.0, 0.0],
+        }
+        band_energy = Vaspwave._build_band_energy_array(kpoint_data)
+        assert_allclose(band_energy, [[1.5, 0.0, 1.0], [2.5, -0.25, 0.0]])
+
+    def test_parse_structure(self):
+        structure = Vaspwave._parse_structure(
+            {
+                "direct_coordinates": 1,
+                "ion_types": ["H"],
+                "number_ion_types": [2],
+                "lattice_vectors": np.diag([2.0, 3.0, 4.0]),
+                "position_ions": [[0.25, 0.5, 0.75], [0.75, 0.5, 0.25]],
+                "scale": 1.0,
+            }
+        )
+
+        assert structure.reduced_formula == "H2"
+        assert_allclose(structure.lattice.matrix, np.diag([2.0, 3.0, 4.0]))
+        assert_allclose(structure.frac_coords, [[0.25, 0.5, 0.75], [0.75, 0.5, 0.25]])
+
+    def test_compute_reciprocal_lattice_and_volume(self):
+        a = np.diag([2.0, 3.0, 4.0])
+        b, vol = Vaspwave._compute_reciprocal_lattice_and_volume(a)
+
+        assert vol == approx(24.0)
+        assert_allclose(b, np.diag([np.pi, 2 * np.pi / 3, np.pi / 2]))
+
+    def test_is_gamma_only(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+        vaspwave.kpoints = [np.array([1e-12, -1e-12, 0.0])]
+
+        assert vaspwave._is_gamma_only()
+
+    def test_fft_mesh_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        mesh_shift = vaspwave.fft_mesh(0, 0)
+        mesh_noshift = vaspwave.fft_mesh(0, 0, shift=False)
+        gpoints = vaspwave.Gpoints[0]
+
+        assert gpoints is not None
+        assert len(gpoints) == 5
+        assert mesh_shift.shape == tuple(vaspwave.ng)
+        assert mesh_noshift.shape == tuple(vaspwave.ng)
+        assert np.count_nonzero(mesh_shift) == 3
+        assert np.count_nonzero(mesh_noshift) == 3
+
+        center = tuple((vaspwave.ng / 2).astype(int))
+        shifted_indices = [tuple(gp.astype(int) + np.array(center)) for gp in gpoints]
+        expected_coeffs = np.array(
+            [
+                1.0 + 0.0j,
+                (0.5 + 0.25j) / np.sqrt(2),
+                0.0 + 0.0j,
+                (0.5 - 0.25j) / np.sqrt(2),
+                0.0 - 0.0j,
+            ],
+            dtype=np.complex128,
+        )
+        assert_allclose([mesh_noshift[idx] for idx in shifted_indices], expected_coeffs)
+        assert_allclose(mesh_shift, np.fft.ifftshift(mesh_noshift))
+
+    def test_evaluate_wavefunc_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+        r = np.array([0.0, 0.0, 0.0])
+
+        value = vaspwave.evaluate_wavefunc(0, 0, r)
+
+        assert value == approx((1.0 + 2 * (0.5 / np.sqrt(2))) / np.sqrt(24.0))
+
+    def test_gamma_only_not_implemented_stubs(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        with pytest.raises(NotImplementedError, match="Spin-resolved vaspwave.h5"):
+            vaspwave.get_parchg(Poscar.from_file(f"{VASP_IN_DIR}/POSCAR"), 0, 0, spin=1)
+
+        with pytest.raises(NotImplementedError, match="Spinor-resolved vaspwave.h5"):
+            vaspwave.get_parchg(Poscar.from_file(f"{VASP_IN_DIR}/POSCAR"), 0, 0, spinor=0)
+
+    def test_fft_mesh_invalid_band_index(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        with pytest.raises(IndexError, match="Band index 5 out of range"):
+            vaspwave.fft_mesh(0, 5)
 
     def test_non_gamma_guard(self):
-        vaspwave = Vaspwave.__new__(Vaspwave)
-        vaspwave.spin = 1
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
         vaspwave.nk = 2
         vaspwave._gamma_only = False
 
@@ -2415,10 +2604,226 @@ class TestVaspwave(MatSciTest):
             vaspwave._require_gamma_only()
 
     def test_spin_guard(self):
-        vaspwave = Vaspwave.__new__(Vaspwave)
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
         vaspwave.spin = 2
-        vaspwave.nk = 1
-        vaspwave._gamma_only = True
 
         with pytest.raises(NotImplementedError, match="Spin-polarized vaspwave.h5"):
             vaspwave._require_gamma_only()
+
+    def test_get_parchg_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        chgcar = vaspwave.get_parchg(Poscar.from_file(f"{VASP_IN_DIR}/POSCAR"), 0, 0, phase=False)
+
+        assert "total" in chgcar.data
+        assert "diff" not in chgcar.data
+        assert chgcar.data["total"].shape == tuple(vaspwave.ng * 2)
+        assert np.all(chgcar.data["total"] >= 0.0)
+
+    def test_get_parchg_phase_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        chgcar = vaspwave.get_parchg(Poscar.from_file(f"{VASP_IN_DIR}/POSCAR"), 0, 0, phase=True)
+        chgcar_no_phase = vaspwave.get_parchg(Poscar.from_file(f"{VASP_IN_DIR}/POSCAR"), 0, 0, phase=False)
+
+        assert "total" in chgcar.data
+        assert chgcar.data["total"].shape == tuple(vaspwave.ng * 2)
+        assert_allclose(np.abs(chgcar.data["total"]), chgcar_no_phase.data["total"])
+
+    def test_write_unks_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        out_dir = Path(self.tmp_path) / "unks"
+        vaspwave.write_unks(out_dir)
+
+        unk = Unk.from_file(out_dir / "UNK00001.1")
+        assert unk.data.shape == (vaspwave.nb, *vaspwave.ng)
+        assert unk.data.dtype == np.complex128
+
+    def test_get_charge_density_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        chgcar = vaspwave.get_charge_density()
+
+        assert isinstance(chgcar, Chgcar)
+        assert chgcar.structure == vaspwave.initial_structure
+        assert chgcar.dim == (2, 3, 4)
+        assert_allclose(chgcar.data["total"], np.transpose(np.arange(24, dtype=float).reshape(4, 3, 2), (2, 1, 0)))
+
+    def test_get_locpot_minimal_vaspwave_h5(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+
+        locpot = vaspwave.get_locpot()
+
+        assert isinstance(locpot, Locpot)
+        assert locpot.structure == vaspwave.initial_structure
+        assert locpot.dim == (2, 3, 4)
+        assert_allclose(
+            locpot.data["total"],
+            np.transpose((100.0 + np.arange(24, dtype=float)).reshape(4, 3, 2), (2, 1, 0)),
+        )
+
+    @pytest.mark.skipif(
+        not (LOCAL_VASPWAVE_TEST_DIR / "gamma-only" / "vaspwave.h5").exists(),
+        reason="Local gamma-only vaspwave validation files are not available.",
+    )
+    def test_gamma_only_real_sample_matches_wavecar(self):
+        vaspwave = Vaspwave(self.local_gamma_dir / "vaspwave.h5")
+        wavecar = Wavecar(self.local_gamma_dir / "WAVECAR")
+
+        assert vaspwave.spin == wavecar.spin
+        assert vaspwave.nk == wavecar.nk
+        assert vaspwave.nb == wavecar.nb
+        assert vaspwave.encut == approx(wavecar.encut)
+        assert vaspwave.efermi == approx(wavecar.efermi)
+        assert_allclose(vaspwave.a, wavecar.a)
+        assert_allclose(vaspwave.b, wavecar.b)
+        assert vaspwave.vol == approx(wavecar.vol)
+        assert_allclose(vaspwave.kpoints[0], wavecar.kpoints[0])
+
+        gpoints = vaspwave.Gpoints[0]
+        assert gpoints is not None
+        assert_allclose(gpoints, wavecar.Gpoints[0])
+        assert vaspwave.num_planewaves[0] == len(wavecar._generate_G_points(wavecar.kpoints[0], gamma=True)[0])
+
+        for band in (0, min(1, vaspwave.nb - 1)):
+            assert_allclose(vaspwave._get_band_coeffs(0, 0, band), wavecar.coeffs[0][band])
+            assert_allclose(vaspwave.fft_mesh(0, band), wavecar.fft_mesh(0, band))
+
+        for band, r in ((0, np.array([0.0, 0.0, 0.0])), (0, np.array([0.1, 0.2, 0.3]))):
+            assert vaspwave.evaluate_wavefunc(0, band, r) == approx(wavecar.evaluate_wavefunc(0, band, r))
+
+    @pytest.mark.skipif(
+        not (LOCAL_VASPWAVE_TEST_DIR / "gamma-only" / "vaspwave.h5").exists(),
+        reason="Local gamma-only vaspwave validation files are not available.",
+    )
+    def test_gamma_only_real_sample_parchg_and_unk_match_wavecar(self):
+        gamma_dir = self.local_gamma_dir
+        vaspwave = Vaspwave(gamma_dir / "vaspwave.h5")
+        wavecar = Wavecar(gamma_dir / "WAVECAR")
+        poscar = Chgcar.from_file(gamma_dir / "CHGCAR").poscar
+
+        vaspwave_parchg = vaspwave.get_parchg(poscar, 0, 0, phase=False, scale=1)
+        wavecar_parchg = wavecar.get_parchg(poscar, 0, 0, spin=0, phase=False, scale=1)
+        assert_allclose(vaspwave_parchg.data["total"], wavecar_parchg.data["total"])
+
+        vaspwave_dir = Path(self.tmp_path) / "vaspwave_unk"
+        wavecar_dir = Path(self.tmp_path) / "wavecar_unk"
+        vaspwave.write_unks(vaspwave_dir)
+        wavecar.write_unks(wavecar_dir)
+
+        assert Unk.from_file(vaspwave_dir / "UNK00001.1") == Unk.from_file(wavecar_dir / "UNK00001.1")
+
+    @pytest.mark.skipif(
+        not (LOCAL_VASPWAVE_TEST_DIR / "std" / "vaspwave.h5").exists(),
+        reason="Local std vaspwave validation files are not available.",
+    )
+    def test_std_real_sample_matches_wavecar(self):
+        vaspwave = Vaspwave(self.local_std_dir / "vaspwave.h5")
+        wavecar = Wavecar(self.local_std_dir / "WAVECAR")
+
+        assert vaspwave.vasp_type == "std"
+        assert vaspwave.spin == wavecar.spin
+        assert vaspwave.nk == wavecar.nk
+        assert vaspwave.nb == wavecar.nb
+        assert vaspwave.encut == approx(wavecar.encut)
+        assert vaspwave.efermi == approx(wavecar.efermi)
+        assert_allclose(vaspwave.a, wavecar.a)
+        assert_allclose(vaspwave.b, wavecar.b)
+        assert vaspwave.vol == approx(wavecar.vol)
+        assert_allclose(vaspwave.kpoints[0], wavecar.kpoints[0])
+
+        gpoints = vaspwave.Gpoints[0]
+        assert gpoints is not None
+        assert vaspwave.num_planewaves[0] == len(wavecar.Gpoints[0])
+        assert_allclose(gpoints, wavecar.Gpoints[0])
+
+        for band in (0, min(1, vaspwave.nb - 1)):
+            assert_allclose(vaspwave._get_band_coeffs(0, 0, band), wavecar.coeffs[0][band])
+            assert_allclose(vaspwave.fft_mesh(0, band), wavecar.fft_mesh(0, band))
+
+        for band, r in ((0, np.array([0.0, 0.0, 0.0])), (1, np.array([0.1, 0.2, 0.3]))):
+            assert vaspwave.evaluate_wavefunc(0, band, r) == approx(wavecar.evaluate_wavefunc(0, band, r))
+
+    @pytest.mark.skipif(
+        not (LOCAL_VASPWAVE_TEST_DIR / "std" / "vaspwave.h5").exists(),
+        reason="Local std vaspwave validation files are not available.",
+    )
+    def test_std_real_sample_parchg_and_unk_match_wavecar(self):
+        std_dir = self.local_std_dir
+        vaspwave = Vaspwave(std_dir / "vaspwave.h5")
+        wavecar = Wavecar(std_dir / "WAVECAR")
+        poscar = Chgcar.from_file(std_dir / "CHGCAR").poscar
+
+        vaspwave_parchg = vaspwave.get_parchg(poscar, 0, 0, phase=False, scale=1)
+        wavecar_parchg = wavecar.get_parchg(poscar, 0, 0, spin=0, phase=False, scale=1)
+        assert_allclose(vaspwave_parchg.data["total"], wavecar_parchg.data["total"])
+
+        vaspwave_dir = Path(self.tmp_path) / "std_vaspwave_unk"
+        wavecar_dir = Path(self.tmp_path) / "std_wavecar_unk"
+        vaspwave.write_unks(vaspwave_dir)
+        wavecar.write_unks(wavecar_dir)
+
+        assert Unk.from_file(vaspwave_dir / "UNK00001.1") == Unk.from_file(wavecar_dir / "UNK00001.1")
+
+    @pytest.mark.skipif(
+        not (LOCAL_VASPWAVE_TEST_DIR / "std" / "vaspwave.h5").exists(),
+        reason="Local std vaspwave validation files are not available.",
+    )
+    def test_std_spin_and_spinor_guards(self):
+        vaspwave = Vaspwave(self.local_std_dir / "vaspwave.h5")
+
+        with pytest.raises(NotImplementedError, match="Spin-resolved vaspwave.h5"):
+            vaspwave.get_parchg(Poscar.from_file(f"{VASP_IN_DIR}/POSCAR"), 0, 0, spin=1)
+
+        with pytest.raises(NotImplementedError, match="Spinor-resolved vaspwave.h5"):
+            vaspwave.get_parchg(Poscar.from_file(f"{VASP_IN_DIR}/POSCAR"), 0, 0, spinor=0)
+
+    @pytest.mark.skipif(
+        not (LOCAL_VASPWAVE_TEST_DIR / "gamma-only" / "vaspwave.h5").exists(),
+        reason="Local gamma-only vaspwave validation files are not available.",
+    )
+    def test_real_sample_structure_matches_chgcar(self):
+        vaspwave = Vaspwave(self.local_gamma_dir / "vaspwave.h5")
+        chgcar = Chgcar.from_file(self.local_gamma_dir / "CHGCAR")
+
+        assert vaspwave.initial_structure == chgcar.structure
+        assert vaspwave.final_structure == chgcar.structure
+
+    @pytest.mark.skipif(
+        not (LOCAL_VASPWAVE_TEST_DIR / "gamma-only" / "vaspwave.h5").exists(),
+        reason="Local gamma-only vaspwave validation files are not available.",
+    )
+    def test_real_sample_charge_density_matches_chgcar(self):
+        vaspwave = Vaspwave(self.local_gamma_dir / "vaspwave.h5")
+        chgcar_h5 = vaspwave.get_charge_density()
+        chgcar = Chgcar.from_file(self.local_gamma_dir / "CHGCAR")
+
+        assert chgcar_h5.structure == chgcar.structure
+        assert chgcar_h5.dim == chgcar.dim
+        assert_allclose(chgcar_h5.data["total"], chgcar.data["total"])
+
+    @pytest.mark.skipif(
+        not (LOCAL_VASPWAVE_TEST_DIR / "gamma-only" / "vaspwave.h5").exists(),
+        reason="Local gamma-only vaspwave validation files are not available.",
+    )
+    def test_real_sample_locpot_matches_file(self):
+        vaspwave = Vaspwave(self.local_gamma_dir / "vaspwave.h5")
+        locpot_h5 = vaspwave.get_locpot()
+        locpot = Locpot.from_file(self.local_gamma_dir / "LOCPOT")
+
+        assert locpot_h5.structure == locpot.structure
+        assert locpot_h5.dim == locpot.dim
+        assert_allclose(locpot_h5.data["total"], locpot.data["total"])
