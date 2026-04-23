@@ -1302,6 +1302,12 @@ class TestOutcar:
         assert outcar.data["fermi_contact_shift"]["th"][0][0] == approx(-0.052)
         assert outcar.data["fermi_contact_shift"]["dh"][0][0] == approx(0.0)
 
+    def test_read_vacuum_potentials(self):
+        outcar = Outcar(f"{VASP_OUT_DIR}/OUTCAR.vacuum_potentials.gz")
+        outcar.read_vacuum_potentials()
+        assert outcar.data["vacuum_potential_upper"] == approx(1.778)
+        assert outcar.data["vacuum_potential_lower"] == approx(1.779)
+
     def test_drift(self):
         outcar = Outcar(f"{VASP_OUT_DIR}/OUTCAR.gz")
         assert len(outcar.drift) == 5
