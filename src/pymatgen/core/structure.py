@@ -841,6 +841,7 @@ class SiteCollection(collections.abc.Sequence, ABC):
         opt_kwargs: dict | None = None,
         return_trajectory: bool = False,
         verbose: bool = False,
+        asecellfilter_kwargs: dict | None = None,
     ) -> Structure | Molecule | tuple[Structure | Molecule, TrajectoryObserver | Trajectory]:
         """Perform a structure relaxation using an ASE calculator.
 
@@ -858,6 +859,7 @@ class SiteCollection(collections.abc.Sequence, ABC):
             return_trajectory (bool): Whether to return the trajectory of relaxation.
                 Defaults to False.
             verbose (bool): whether to print stdout. Defaults to False.
+            asecellfilter_kwargs (dict): kwargs for the ASE FrechetCellFilter class.
 
         Returns:
             Structure | Molecule: Relaxed structure or molecule
@@ -870,6 +872,7 @@ class SiteCollection(collections.abc.Sequence, ABC):
         from pymatgen.io.ase import AseAtomsAdaptor
 
         opt_kwargs = opt_kwargs or {}
+        asecellfilter_kwargs = asecellfilter_kwargs or {}
         is_molecule = isinstance(self, Molecule)
         # UIP=universal interatomic potential
         run_uip = isinstance(calculator, str)
@@ -912,7 +915,7 @@ class SiteCollection(collections.abc.Sequence, ABC):
             if relax_cell:
                 if is_molecule:
                     raise ValueError("Can't relax cell for a Molecule")
-                ecf = FrechetCellFilter(atoms)
+                ecf = FrechetCellFilter(atoms, **asecellfilter_kwargs)
                 dyn = opt_class(ecf, **opt_kwargs)
             else:
                 dyn = opt_class(atoms, **opt_kwargs)
@@ -4960,6 +4963,7 @@ class Structure(IStructure, collections.abc.MutableSequence):
         opt_kwargs: dict | None = None,
         return_trajectory: bool = False,
         verbose: bool = False,
+        asecellfilter_kwargs: dict | None = None,
     ) -> Structure | tuple[Structure, TrajectoryObserver | Trajectory]:
         """Perform a crystal structure relaxation using an ASE calculator.
 
@@ -4977,6 +4981,7 @@ class Structure(IStructure, collections.abc.MutableSequence):
             return_trajectory (bool): Whether to return the trajectory of relaxation.
                 Defaults to False.
             verbose (bool): whether to print out relaxation steps. Defaults to False.
+            asecellfilter_kwargs (dict): kwargs for the ASE FrechetCellFilter class.
 
         Returns:
             Structure | tuple[Structure, Trajectory]: Relaxed structure or if return_trajectory=True,
@@ -4992,6 +4997,7 @@ class Structure(IStructure, collections.abc.MutableSequence):
             opt_kwargs=opt_kwargs,
             return_trajectory=return_trajectory,
             verbose=verbose,
+            asecellfilter_kwargs=asecellfilter_kwargs,
         )
 
     def calculate(
