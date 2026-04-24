@@ -37,10 +37,10 @@ from pymatgen.io.vasp.outputs import (
     Outcar,
     Procar,
     UnconvergedVASPWarning,
-    Vaspwave,
     Vaspout,
     VaspParseError,
     Vasprun,
+    Vaspwave,
     Wavecar,
     Waveder,
     Xdatcar,
@@ -2471,12 +2471,14 @@ class TestVaspwave(MatSciTest):
         resulting HDF5 can be parsed back by ``Vaspwave``.
         """
         if wavecar.vasp_type not in {"gam", "std"}:
-            raise NotImplementedError("Runtime Vaspwave fixtures currently support only gamma-only and std Wavecar data.")
+            raise NotImplementedError(
+                "Runtime Vaspwave fixtures currently support only gamma-only and std Wavecar data."
+            )
         if wavecar.spin != 1:
             raise NotImplementedError("Runtime Vaspwave fixtures currently support only spin-unpolarized Wavecar data.")
 
         lattice = np.array(structure.lattice.matrix, dtype=float)
-        species = [str(sp) for sp in structure.composition.keys()]
+        species = [str(sp) for sp in structure.composition]
         counts = [int(structure.composition[sp]) for sp in structure.composition]
 
         with h5py.File(filename, "w") as h5_file:
@@ -2960,7 +2962,10 @@ class TestVaspwave(MatSciTest):
         grid = np.array([2, 3, 5])
         data = np.zeros((1, 4, 3, 2))
 
-        with pytest.raises(ValueError, match="/charge/grid \\(2, 3, 5\\) does not match /charge/charge shape \\(4, 3, 2\\)"):
+        with pytest.raises(
+            ValueError,
+            match="/charge/grid \\(2, 3, 5\\) does not match /charge/charge shape \\(4, 3, 2\\)",
+        ):
             Vaspwave._validate_volumetric_dataset(grid, data, "/charge/charge")
 
     @pytest.mark.skipif(
@@ -3161,9 +3166,9 @@ class TestVaspwave(MatSciTest):
 
         vaspwave_parchg_spin = vaspwave.get_parchg(poscar, 0, 0, spin=1, phase=False, scale=1)
         wavecar_parchg_spin = wavecar.get_parchg(poscar, 0, 0, spin=1, phase=False, scale=1)
-        spin_rel_err = np.linalg.norm(vaspwave_parchg_spin.data["total"] - wavecar_parchg_spin.data["total"]) / np.linalg.norm(
-            wavecar_parchg_spin.data["total"]
-        )
+        spin_rel_err = np.linalg.norm(
+            vaspwave_parchg_spin.data["total"] - wavecar_parchg_spin.data["total"]
+        ) / np.linalg.norm(wavecar_parchg_spin.data["total"])
         assert spin_rel_err < 0.12
 
         vaspwave_dir = Path(self.tmp_path) / "ispin2_vaspwave_unk"
@@ -3202,11 +3207,21 @@ class TestVaspwave(MatSciTest):
         assert chgcar_h5.structure == chgcar.structure
         assert chgcar_h5.dim == chgcar.dim
         assert chgcar_h5.is_soc
-        total_rel_err = np.linalg.norm(chgcar_h5.data["total"] - chgcar.data["total"]) / np.linalg.norm(chgcar.data["total"])
-        diff_x_rel_err = np.linalg.norm(chgcar_h5.data["diff_x"] - chgcar.data["diff_x"]) / np.linalg.norm(chgcar.data["diff_x"])
-        diff_y_rel_err = np.linalg.norm(chgcar_h5.data["diff_y"] - chgcar.data["diff_y"]) / np.linalg.norm(chgcar.data["diff_y"])
-        diff_z_rel_err = np.linalg.norm(chgcar_h5.data["diff_z"] - chgcar.data["diff_z"]) / np.linalg.norm(chgcar.data["diff_z"])
-        diff_rel_err = np.linalg.norm(chgcar_h5.data["diff"] - chgcar.data["diff"]) / np.linalg.norm(chgcar.data["diff"])
+        total_rel_err = np.linalg.norm(chgcar_h5.data["total"] - chgcar.data["total"]) / np.linalg.norm(
+            chgcar.data["total"]
+        )
+        diff_x_rel_err = np.linalg.norm(chgcar_h5.data["diff_x"] - chgcar.data["diff_x"]) / np.linalg.norm(
+            chgcar.data["diff_x"]
+        )
+        diff_y_rel_err = np.linalg.norm(chgcar_h5.data["diff_y"] - chgcar.data["diff_y"]) / np.linalg.norm(
+            chgcar.data["diff_y"]
+        )
+        diff_z_rel_err = np.linalg.norm(chgcar_h5.data["diff_z"] - chgcar.data["diff_z"]) / np.linalg.norm(
+            chgcar.data["diff_z"]
+        )
+        diff_rel_err = np.linalg.norm(chgcar_h5.data["diff"] - chgcar.data["diff"]) / np.linalg.norm(
+            chgcar.data["diff"]
+        )
         assert total_rel_err < 1e-6
         assert diff_x_rel_err < 2e-4
         assert diff_y_rel_err < 2e-4

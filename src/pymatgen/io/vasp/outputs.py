@@ -6145,7 +6145,9 @@ class Vaspwave(Vasprun):
 
         if self._gamma_only:
             self.vasp_type = "gam"
-        elif all(2 * len(gpoints) == num_pw for gpoints, num_pw in zip(self.Gpoints, self.num_planewaves, strict=False)):
+        elif all(
+            2 * len(gpoints) == num_pw for gpoints, num_pw in zip(self.Gpoints, self.num_planewaves, strict=False)
+        ):
             self.vasp_type = "ncl"
         else:
             self.vasp_type = "std"
@@ -6258,13 +6260,18 @@ class Vaspwave(Vasprun):
     def _compute_reciprocal_lattice_and_volume(a: np.ndarray) -> tuple[np.ndarray, float]:
         """Compute reciprocal lattice vectors and real-space cell volume."""
         vol = np.dot(a[0, :], np.cross(a[1, :], a[2, :]))
-        b = 2 * np.pi * np.array(
-            [
-                np.cross(a[1, :], a[2, :]),
-                np.cross(a[2, :], a[0, :]),
-                np.cross(a[0, :], a[1, :]),
-            ]
-        ) / vol
+        b = (
+            2
+            * np.pi
+            * np.array(
+                [
+                    np.cross(a[1, :], a[2, :]),
+                    np.cross(a[2, :], a[0, :]),
+                    np.cross(a[0, :], a[1, :]),
+                ]
+            )
+            / vol
+        )
         return b, vol
 
     # -------------------------------------------------------------------------
@@ -6425,7 +6432,10 @@ class Vaspwave(Vasprun):
         if data.ndim != 4:
             raise ValueError(f"Expected {dataset_name} to have 4 dimensions, got shape {data.shape}.")
         if tuple(grid.tolist()) != tuple(data.shape[1:][::-1]):
-            raise ValueError(f"/{dataset_name.rsplit('/', 1)[0]}/grid {tuple(grid.tolist())} does not match {dataset_name} shape {data.shape[1:]}.")
+            raise ValueError(
+                f"/{dataset_name.rsplit('/', 1)[0]}/grid {tuple(grid.tolist())} does not match "
+                f"{dataset_name} shape {data.shape[1:]}."
+            )
 
         if data.shape[0] == 1:
             return {"total": Vaspwave._transpose_volumetric_component(data[0])}
