@@ -2478,7 +2478,7 @@ class TestVaspwave(MatSciTest):
         self._write_minimal_vaspwave_h5(filename)
 
         vaspwave = Vaspwave(filename)
-        coeffs = vaspwave._get_band_coeffs(0, 0, 1)
+        coeffs = vaspwave.get_band_coeffs(0, 0, 1)
 
         assert_allclose(
             coeffs,
@@ -2573,6 +2573,21 @@ class TestVaspwave(MatSciTest):
         value = vaspwave.evaluate_wavefunc(0, 0, r)
 
         assert value == approx((1.0 + 2 * (0.5 / np.sqrt(2))) / np.sqrt(24.0))
+
+    def test_negative_indices_match_positive_indices(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        vaspwave = Vaspwave(filename)
+        poscar = Poscar.from_file(f"{VASP_IN_DIR}/POSCAR")
+        r = np.array([0.0, 0.0, 0.0])
+
+        assert_allclose(vaspwave.get_band_coeffs(0, -1, -1), vaspwave.get_band_coeffs(0, 0, 1))
+        assert_allclose(vaspwave.fft_mesh(-1, -1), vaspwave.fft_mesh(0, 1))
+        assert vaspwave.evaluate_wavefunc(-1, -1, r) == approx(vaspwave.evaluate_wavefunc(0, 1, r))
+        assert_allclose(
+            vaspwave.get_parchg(poscar, -1, -1, phase=False).data["total"],
+            vaspwave.get_parchg(poscar, 0, 1, phase=False).data["total"],
+        )
 
     def test_gamma_only_not_implemented_stubs(self):
         filename = Path(self.tmp_path) / "vaspwave.h5"
@@ -2699,7 +2714,7 @@ class TestVaspwave(MatSciTest):
         assert vaspwave.num_planewaves[0] == len(wavecar._generate_G_points(wavecar.kpoints[0], gamma=True)[0])
 
         for band in (0, min(1, vaspwave.nb - 1)):
-            assert_allclose(vaspwave._get_band_coeffs(0, 0, band), wavecar.coeffs[0][band])
+            assert_allclose(vaspwave.get_band_coeffs(0, 0, band), wavecar.coeffs[0][band])
             assert_allclose(vaspwave.fft_mesh(0, band), wavecar.fft_mesh(0, band))
 
         for band, r in ((0, np.array([0.0, 0.0, 0.0])), (0, np.array([0.1, 0.2, 0.3]))):
@@ -2751,7 +2766,7 @@ class TestVaspwave(MatSciTest):
         assert_allclose(gpoints, wavecar.Gpoints[0])
 
         for band in (0, min(1, vaspwave.nb - 1)):
-            assert_allclose(vaspwave._get_band_coeffs(0, 0, band), wavecar.coeffs[0][band])
+            assert_allclose(vaspwave.get_band_coeffs(0, 0, band), wavecar.coeffs[0][band])
             assert_allclose(vaspwave.fft_mesh(0, band), wavecar.fft_mesh(0, band))
 
         for band, r in ((0, np.array([0.0, 0.0, 0.0])), (1, np.array([0.1, 0.2, 0.3]))):
