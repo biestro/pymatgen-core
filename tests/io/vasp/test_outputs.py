@@ -3092,38 +3092,36 @@ class TestVaspwave(MatSciTest):
         vaspwave = Vaspwave(self.ispin2_std_dir / "vaspwave.h5")
         wavecar = Wavecar(self.ispin2_std_dir / "WAVECAR")
 
-        # VASP source-level restart code in vhdf5.F/fileio.F warns that
-        # symmetry-reduced vasp_std wavefunctions can change their serialized
-        # HDF5 plane-wave coefficients. The public Vaspwave API exposes a
-        # canonical coefficient vector, but this local ISPIN=2 sample is still
-        # validated against Wavecar with phase-insensitive and relative-error
-        # checks instead of pointwise equality.
         assert vaspwave.vasp_type == "std"
         assert vaspwave.spin == wavecar.spin == 2
         assert vaspwave.nk == wavecar.nk
         assert vaspwave.nb == wavecar.nb
-        assert_allclose(vaspwave.kpoints[0], wavecar.kpoints[0])
+        for ik in range(vaspwave.nk):
+            assert_allclose(vaspwave.kpoints[ik], wavecar.kpoints[ik])
+            assert_allclose(vaspwave.Gpoints[ik], wavecar.Gpoints[ik])
+            assert vaspwave.num_planewaves[ik] == len(wavecar.Gpoints[ik])
 
         for spin in (0, 1):
-            for band in (0, min(1, vaspwave.nb - 1)):
-                coeffs_h5 = vaspwave.get_band_coeffs(spin, 0, band)
-                coeffs_wavecar = wavecar.coeffs[spin][0][band]
-                phase = np.vdot(coeffs_wavecar, coeffs_h5) / np.vdot(coeffs_wavecar, coeffs_wavecar)
-                rel_resid = np.linalg.norm(coeffs_h5 - phase * coeffs_wavecar) / np.linalg.norm(coeffs_wavecar)
-                assert rel_resid < 0.08
+            for ik in range(vaspwave.nk):
+                for band in range(vaspwave.nb):
+                    coeffs_h5 = vaspwave.get_band_coeffs(spin, ik, band)
+                    coeffs_wavecar = wavecar.coeffs[spin][ik][band]
+                    phase = np.vdot(coeffs_wavecar, coeffs_h5) / np.vdot(coeffs_wavecar, coeffs_wavecar)
+                    assert_allclose(coeffs_h5, phase * coeffs_wavecar, atol=1e-6, rtol=1e-6)
 
-                mesh_h5 = vaspwave.fft_mesh(0, band, spin=spin)
-                mesh_wavecar = wavecar.fft_mesh(0, band, spin=spin)
-                mesh_rel_resid = np.linalg.norm(mesh_h5 - phase * mesh_wavecar) / np.linalg.norm(mesh_wavecar)
-                assert mesh_rel_resid < 0.08
+                    mesh_h5 = vaspwave.fft_mesh(ik, band, spin=spin)
+                    mesh_wavecar = wavecar.fft_mesh(ik, band, spin=spin)
+                    assert_allclose(mesh_h5, phase * mesh_wavecar, atol=1e-6, rtol=1e-6)
 
         for spin in (0, 1):
-            for r in (np.array([0.0, 0.0, 0.0]), np.array([0.1, 0.2, 0.3])):
-                assert abs(vaspwave.evaluate_wavefunc(0, 0, r, spin=spin)) == approx(
-                    abs(wavecar.evaluate_wavefunc(0, 0, r, spin=spin)),
-                    rel=0.2,
-                    abs=1e-6,
-                )
+            for ik in range(vaspwave.nk):
+                for band, r in ((0, np.array([0.0, 0.0, 0.0])), (min(1, vaspwave.nb - 1), np.array([0.1, 0.2, 0.3]))):
+                    value_h5 = vaspwave.evaluate_wavefunc(ik, band, r, spin=spin)
+                    value_wavecar = wavecar.evaluate_wavefunc(ik, band, r, spin=spin)
+                    coeffs_h5 = vaspwave.get_band_coeffs(spin, ik, band)
+                    coeffs_wavecar = wavecar.coeffs[spin][ik][band]
+                    phase = np.vdot(coeffs_wavecar, coeffs_h5) / np.vdot(coeffs_wavecar, coeffs_wavecar)
+                    assert value_h5 == approx(phase * value_wavecar, rel=1e-6, abs=1e-6)
 
     @pytest.mark.skipif(
         not (Path(TEST_DIR) / "outputs" / "vaspwave-H2.tar.gz").exists(),
@@ -3173,10 +3171,6 @@ class TestVaspwave(MatSciTest):
         vaspwave.write_unks(vaspwave_dir)
         wavecar.write_unks(wavecar_dir)
 
-        # The local ISPIN=2 std sample currently validates UNK export at the
-        # interface level only. VASP's own HDF5/WAVECAR restart path documents
-        # that coefficients may change for vasp_std under symmetry reduction,
-        # so pointwise UNK equality is not assumed here.
         unk_h5_up = Unk.from_file(vaspwave_dir / "UNK00001.1")
         unk_h5_dn = Unk.from_file(vaspwave_dir / "UNK00001.2")
         unk_wavecar_up = Unk.from_file(wavecar_dir / "UNK00001.1")
@@ -3186,6 +3180,15 @@ class TestVaspwave(MatSciTest):
         assert unk_h5_dn.data.shape == unk_wavecar_dn.data.shape == (vaspwave.nb, *vaspwave.ng)
         assert unk_h5_up.data.dtype == unk_wavecar_up.data.dtype == np.complex128
         assert unk_h5_dn.data.dtype == unk_wavecar_dn.data.dtype == np.complex128
+        for band in range(vaspwave.nb):
+            phase_up = np.vdot(unk_wavecar_up.data[band], unk_h5_up.data[band]) / np.vdot(
+                unk_wavecar_up.data[band], unk_wavecar_up.data[band]
+            )
+            phase_dn = np.vdot(unk_wavecar_dn.data[band], unk_h5_dn.data[band]) / np.vdot(
+                unk_wavecar_dn.data[band], unk_wavecar_dn.data[band]
+            )
+            assert_allclose(unk_h5_up.data[band], phase_up * unk_wavecar_up.data[band], atol=1e-6, rtol=1e-6)
+            assert_allclose(unk_h5_dn.data[band], phase_dn * unk_wavecar_dn.data[band], atol=1e-6, rtol=1e-6)
 
     @pytest.mark.skipif(
         not (Path(TEST_DIR) / "outputs" / "vaspwave-H2.tar.gz").exists(),

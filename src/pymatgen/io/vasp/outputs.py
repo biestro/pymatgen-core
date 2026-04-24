@@ -6036,12 +6036,11 @@ class UnconvergedVASPWarning(Warning):
 # - When extending support (for example spin-polarized or non-gamma files),
 #   prefer adding capability checks in one place rather than scattering
 #   conditionals across multiple public methods.
-# - For collinear `ISPIN=2` std samples, VASP source-level restart logic in
-#   `vhdf5.F` / `fileio.F` indicates that `vaspwave.h5` and legacy `WAVECAR`
-#   are not always expected to remain pointwise identical under symmetry-
-#   reduced `vasp_std` conditions. Keep that limitation explicit in tests and
-#   docstrings until an `ISYM=0/-1` validation sample proves stricter
-#   equivalence.
+# - VASP writes `vaspwave.h5` wave datasets through the same `MRG_PW_BAND` /
+#   `MRG_PW_BAND_GAMMA` merge path used for legacy `WAVECAR`, so std and ncl
+#   datasets are already stored in the public Wavecar-style canonical layout.
+#   The only coefficient reconstruction currently needed here is the gamma-only
+#   symmetry completion.
 @requires(h5py is not None, "h5py must be installed to read vaspwave.h5")
 class Vaspwave(Vasprun):
     """
@@ -6488,11 +6487,8 @@ class Vaspwave(Vasprun):
             return np.array(coeffs, dtype=np.complex128).reshape((2, len(self.Gpoints[kpoint_index])))
 
         if not self._gamma_only:
-            # For std files, the source-level restart path shows that VASP may
-            # still apply additional internal redistribution when reconstructing
-            # wave storage. Until the full inverse mapping is established, keep
-            # the canonicalization boundary explicit and return the serialized
-            # coefficients in a stable complex array.
+            # `vhdf5.F` writes the HDF5 wave dataset after `MRG_PW_BAND`,
+            # matching the canonical coefficient layout exposed by Wavecar.
             return np.array(coeffs, dtype=np.complex128)
 
         coeffs = np.array(coeffs, copy=True)
@@ -6532,11 +6528,10 @@ class Vaspwave(Vasprun):
         Note:
             ``Vaspwave`` reads serialized band rows from the HDF5 dataset and
             converts them into canonical coefficients exposed through the
-            ``Wavecar``-like public API. Gamma-only files reconstruct the
-            symmetry-related coefficients explicitly. For the local ``ISPIN=2``
-            std sample, the resulting coefficients reproduce Wavecar-derived
-            observables closely, but do not yet match the legacy WAVECAR
-            coefficients pointwise.
+            ``Wavecar``-like public API. For std and ncl files, the HDF5 rows
+            already store the canonical coefficient layout written by VASP.
+            Gamma-only files reconstruct the symmetry-related coefficients
+            explicitly.
 
         Args:
             spin_index (int): Spin index. Only ``0`` is supported for ``gam``,
