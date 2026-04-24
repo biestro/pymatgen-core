@@ -2855,8 +2855,25 @@ class TestVaspwave(MatSciTest):
         grid = np.array([2, 3, 4])
         data = np.zeros((2, 4, 3, 2))
 
-        with pytest.raises(NotImplementedError, match="Spin-polarized /charge/charge datasets are not implemented yet"):
+        with pytest.raises(NotImplementedError, match="Unsupported /charge/charge component count 2"):
             Vaspwave._validate_volumetric_dataset(grid, data, "/charge/charge")
+
+    def test_validate_volumetric_dataset_soc_components(self):
+        grid = np.array([2, 3, 4])
+        data = np.zeros((4, 4, 3, 2))
+        data[0] = np.arange(24, dtype=float).reshape(4, 3, 2)
+        data[1] = 1.0
+        data[2] = 2.0
+        data[3] = 3.0
+
+        validated = Vaspwave._validate_volumetric_dataset(grid, data, "/charge/charge")
+
+        assert set(validated) == {"total", "diff_x", "diff_y", "diff_z", "diff"}
+        assert_allclose(validated["total"], np.transpose(data[0], (2, 1, 0)))
+        assert_allclose(validated["diff_x"], np.transpose(data[1], (2, 1, 0)))
+        assert_allclose(validated["diff_y"], np.transpose(data[2], (2, 1, 0)))
+        assert_allclose(validated["diff_z"], np.transpose(data[3], (2, 1, 0)))
+        assert np.all(validated["diff"] > 0)
 
     def test_validate_volumetric_dataset_grid_shape_mismatch(self):
         grid = np.array([2, 3, 5])
@@ -3151,3 +3168,45 @@ class TestVaspwave(MatSciTest):
         assert locpot_h5.structure == locpot.structure
         assert locpot_h5.dim == locpot.dim
         assert_allclose(locpot_h5.data["total"], locpot.data["total"])
+
+    @pytest.mark.skipif(
+        not (LOCAL_VASPWAVE_TEST_DIR / "mno-ncl" / "vaspwave.h5").exists(),
+        reason="Local MnO ncl vaspwave validation files are not available.",
+    )
+    def test_mno_ncl_real_sample_charge_density_matches_chgcar(self):
+        vaspwave = Vaspwave(self.local_mno_ncl_dir / "vaspwave.h5")
+        chgcar_h5 = vaspwave.get_charge_density()
+        chgcar = Chgcar.from_file(self.local_mno_ncl_dir / "CHGCAR")
+
+        assert chgcar_h5.structure == chgcar.structure
+        assert chgcar_h5.dim == chgcar.dim
+        assert chgcar_h5.is_soc
+        total_rel_err = np.linalg.norm(chgcar_h5.data["total"] - chgcar.data["total"]) / np.linalg.norm(chgcar.data["total"])
+        diff_x_rel_err = np.linalg.norm(chgcar_h5.data["diff_x"] - chgcar.data["diff_x"]) / np.linalg.norm(chgcar.data["diff_x"])
+        diff_y_rel_err = np.linalg.norm(chgcar_h5.data["diff_y"] - chgcar.data["diff_y"]) / np.linalg.norm(chgcar.data["diff_y"])
+        diff_z_rel_err = np.linalg.norm(chgcar_h5.data["diff_z"] - chgcar.data["diff_z"]) / np.linalg.norm(chgcar.data["diff_z"])
+        diff_rel_err = np.linalg.norm(chgcar_h5.data["diff"] - chgcar.data["diff"]) / np.linalg.norm(chgcar.data["diff"])
+        assert total_rel_err < 1e-6
+        assert diff_x_rel_err < 1e-6
+        assert diff_y_rel_err < 1e-6
+        assert diff_z_rel_err < 1e-6
+        assert diff_rel_err < 1e-6
+
+    @pytest.mark.skipif(
+        not (LOCAL_VASPWAVE_TEST_DIR / "mno-ncl" / "vaspwave.h5").exists(),
+        reason="Local MnO ncl vaspwave validation files are not available.",
+    )
+    def test_mno_ncl_real_sample_locpot_maps_soc_components(self):
+        vaspwave = Vaspwave(self.local_mno_ncl_dir / "vaspwave.h5")
+        locpot = vaspwave.get_locpot()
+        reference = Locpot.from_file(self.local_mno_ncl_dir / "LOCPOT")
+
+        assert locpot.structure == reference.structure
+        assert locpot.dim == reference.dim
+        assert locpot.is_soc
+        assert set(locpot.data) == {"total", "diff_x", "diff_y", "diff_z", "diff"}
+        assert_allclose(locpot.data["total"], reference.data["total"], atol=1e-6)
+        assert_allclose(locpot.data["diff_x"], reference.data["diff_x"])
+        assert_allclose(locpot.data["diff_y"], reference.data["diff_y"])
+        assert_allclose(locpot.data["diff_z"], reference.data["diff_z"])
+        assert_allclose(locpot.data["diff"], reference.data["diff"])

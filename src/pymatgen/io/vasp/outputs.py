@@ -6393,8 +6393,27 @@ class Vaspwave(Vasprun):
         return self._normalize_spin_index(spin), 0
 
     @staticmethod
-    def _validate_volumetric_dataset(grid: np.ndarray, data: np.ndarray, dataset_name: str) -> np.ndarray:
-        """Validate a spin-unpolarized volumetric dataset and return the transposed 3D grid.
+    def _transpose_volumetric_component(component: np.ndarray) -> np.ndarray:
+        """Transpose one HDF5 volumetric component into pymatgen grid order."""
+        return np.transpose(component, (2, 1, 0))
+
+    @staticmethod
+    def _build_noncollinear_volumetric_data(data: np.ndarray) -> dict[str, np.ndarray]:
+        """Build noncollinear volumetric data from a four-component HDF5 grid."""
+        total = Vaspwave._transpose_volumetric_component(data[0])
+        diff_x = Vaspwave._transpose_volumetric_component(data[1])
+        diff_y = Vaspwave._transpose_volumetric_component(data[2])
+        diff_z = Vaspwave._transpose_volumetric_component(data[3])
+        diff_components = [diff_x, diff_y, diff_z]
+        diff_xyz = np.array(diff_components).reshape((3, total.size))
+        ref_direction = np.array([1.01, 1.02, 1.03])
+        ref_sign = np.sign(np.dot(ref_direction, diff_xyz))
+        diff = np.multiply(np.linalg.norm(diff_xyz, axis=0), ref_sign).reshape(total.shape)
+        return {"total": total, "diff_x": diff_x, "diff_y": diff_y, "diff_z": diff_z, "diff": diff}
+
+    @staticmethod
+    def _validate_volumetric_dataset(grid: np.ndarray, data: np.ndarray, dataset_name: str) -> dict[str, np.ndarray]:
+        """Validate a volumetric dataset and return pymatgen-formatted data dict.
 
         Args:
             grid (np.ndarray): Grid dimensions stored alongside the dataset.
@@ -6402,21 +6421,22 @@ class Vaspwave(Vasprun):
             dataset_name (str): Full dataset path used for error messages.
 
         Returns:
-            np.ndarray: Transposed 3D grid in pymatgen's volumetric-data layout.
+            dict[str, np.ndarray]: Volumetric data in pymatgen's standard key layout.
         """
         if data.ndim != 4:
             raise ValueError(f"Expected {dataset_name} to have 4 dimensions, got shape {data.shape}.")
-        if data.shape[0] != 1:
-            # TODO: Local ncl vaspwave.h5 samples store four volumetric components
-            # here. Teach Vaspwave to map that representation onto pymatgen's
-            # noncollinear volumetric objects instead of rejecting it.
-            raise NotImplementedError(f"Spin-polarized {dataset_name} datasets are not implemented yet.")
         if tuple(grid.tolist()) != tuple(data.shape[1:][::-1]):
             raise ValueError(f"/{dataset_name.rsplit('/', 1)[0]}/grid {tuple(grid.tolist())} does not match {dataset_name} shape {data.shape[1:]}.")
-        return np.transpose(data[0], (2, 1, 0))
 
-    def _read_validated_volumetric_dataset(self, grid_path: str, data_path: str) -> np.ndarray:
-        """Read and validate a spin-unpolarized volumetric HDF5 dataset."""
+        if data.shape[0] == 1:
+            return {"total": Vaspwave._transpose_volumetric_component(data[0])}
+        if data.shape[0] == 4:
+            return Vaspwave._build_noncollinear_volumetric_data(data)
+
+        raise NotImplementedError(f"Unsupported {dataset_name} component count {data.shape[0]}.")
+
+    def _read_validated_volumetric_dataset(self, grid_path: str, data_path: str) -> dict[str, np.ndarray]:
+        """Read and validate a volumetric HDF5 dataset."""
         grid = self._read_hdf5_dataset(grid_path)
         data = self._read_hdf5_dataset(data_path)
         return self._validate_volumetric_dataset(grid, data, data_path)
@@ -6687,13 +6707,13 @@ class Vaspwave(Vasprun):
 
     def get_charge_density(self) -> Chgcar:
         """Read the native charge-density grid stored in ``/charge/charge``."""
-        total = self._read_validated_volumetric_dataset("/charge/grid", "/charge/charge")
-        return Chgcar(self.initial_structure, {"total": total})
+        data = self._read_validated_volumetric_dataset("/charge/grid", "/charge/charge")
+        return Chgcar(self.initial_structure, data)
 
     def get_locpot(self) -> Locpot:
         """Read the native local-potential grid stored in ``/locpot/total``."""
-        validated_total = self._read_validated_volumetric_dataset("/locpot/grid", "/locpot/total")
-        return Locpot(self.initial_structure, {"total": validated_total})
+        data = self._read_validated_volumetric_dataset("/locpot/grid", "/locpot/total")
+        return Locpot(self.initial_structure, data)
 
     def write_unks(self, directory: PathLike) -> None:
         """Write supported ``vaspwave.h5`` wavefunctions to UNK files.
