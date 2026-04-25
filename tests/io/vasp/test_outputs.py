@@ -2401,7 +2401,10 @@ class TestVaspwave(MatSciTest):
             return fixture_dir
         extracted_root.mkdir(parents=True, exist_ok=True)
         with tarfile.open(archive_path, "r:gz") as tar:
-            tar.extractall(extracted_root, filter="data")
+            if hasattr(tarfile, "data_filter"):
+                tar.extractall(extracted_root, filter="data")
+            else:
+                tar.extractall(extracted_root)  # noqa: S202
         return fixture_dir
 
     @staticmethod
