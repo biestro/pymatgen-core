@@ -6089,7 +6089,9 @@ class Vaspwave(Vasprun):
         with zopen(self.filename, "rb") as vwave_file, h5py.File(vwave_file, "r") as h5_file:
             version = self._parse_hdf5_value(h5_file["version"])
             wave_group = h5_file["wave"]
-            structure_group = self._parse_hdf5_value(h5_file["structure"]["positions"])
+            structure_group = None
+            if "structure" in h5_file and "positions" in h5_file["structure"]:
+                structure_group = self._parse_hdf5_value(h5_file["structure"]["positions"])
             self._register_wave_paths(wave_group)
 
             return {
@@ -6168,8 +6170,9 @@ class Vaspwave(Vasprun):
         self.efermi = metadata["efermi"]
         self.a = metadata["a"]
         self.b, self.vol = self._compute_reciprocal_lattice_and_volume(self.a)
-        self.initial_structure = self._parse_structure(metadata["structure_group"])
-        self.final_structure = self.initial_structure.copy()
+        structure_group = metadata["structure_group"]
+        self.initial_structure = None if structure_group is None else self._parse_structure(structure_group)
+        self.final_structure = None if self.initial_structure is None else self.initial_structure.copy()
         self._initialize_kpoint_state()
         self._initialize_reconstruction_state()
 
@@ -6269,6 +6272,16 @@ class Vaspwave(Vasprun):
             coords=positions["position_ions"],
             coords_are_cartesian=(positions["direct_coordinates"] != 1),
         )
+
+    def _get_volumetric_poscar(self) -> Poscar | Structure:
+        """Get the structure object used to construct volumetric VASP outputs."""
+        if self.initial_structure is None:
+            raise ValueError(
+                "vaspwave.h5 does not contain /structure/positions. This can happen for a single-step SCF "
+                "calculation where VASP does not store the structure in vaspwave.h5. Attach a structure manually "
+                "by setting vaspwave.initial_structure before calling this method."
+            )
+        return self.initial_structure
 
     @staticmethod
     def _compute_reciprocal_lattice_and_volume(a: np.ndarray) -> tuple[np.ndarray, float]:
@@ -6741,15 +6754,31 @@ class Vaspwave(Vasprun):
         finally:
             self.ng = temp_ng
 
-    def get_charge_density(self) -> Chgcar:
-        """Read the native charge-density grid stored in ``/charge/charge``."""
+    def get_chgcar(self) -> Chgcar:
+        """Read the native charge-density grid stored in ``/charge/charge``.
+
+        Returns:
+            Chgcar: Charge density object using the structure stored in
+            ``vaspwave.h5``.
+
+        Raises:
+            ValueError: If ``vaspwave.h5`` does not contain structure data.
+        """
         data = self._read_validated_volumetric_dataset("/charge/grid", "/charge/charge")
-        return Chgcar(self.initial_structure, data)
+        return Chgcar(self._get_volumetric_poscar(), data)
 
     def get_locpot(self) -> Locpot:
-        """Read the native local-potential grid stored in ``/locpot/total``."""
+        """Read the native local-potential grid stored in ``/locpot/total``.
+
+        Returns:
+            Locpot: Local potential object using the structure stored in
+            ``vaspwave.h5``.
+
+        Raises:
+            ValueError: If ``vaspwave.h5`` does not contain structure data.
+        """
         data = self._read_validated_volumetric_dataset("/locpot/grid", "/locpot/total")
-        return Locpot(self.initial_structure, data)
+        return Locpot(self._get_volumetric_poscar(), data)
 
     def write_unks(self, directory: PathLike) -> None:
         """Write supported ``vaspwave.h5`` wavefunctions to UNK files.

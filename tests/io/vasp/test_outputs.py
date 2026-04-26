@@ -2461,6 +2461,11 @@ class TestVaspwave(MatSciTest):
             wave_data.attrs["dtype"] = "complex"
 
     @staticmethod
+    def _remove_vaspwave_structure(filename: str | Path) -> None:
+        with h5py.File(filename, "a") as h5_file:
+            del h5_file["structure"]
+
+    @staticmethod
     def _write_vaspwave_h5_from_wavecar(
         filename: str | Path,
         wavecar: Wavecar,
@@ -2562,6 +2567,20 @@ class TestVaspwave(MatSciTest):
         assert vaspwave._gamma_only is True
         assert vaspwave.vasp_type == "gam"
         assert vaspwave.version == {"major": 6, "minor": 6, "patch": 0}
+
+    def test_parse_minimal_vaspwave_h5_without_structure(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        self._remove_vaspwave_structure(filename)
+
+        vaspwave = Vaspwave(filename)
+
+        assert vaspwave.initial_structure is None
+        assert vaspwave.final_structure is None
+        assert vaspwave.spin == 1
+        assert vaspwave.nk == 1
+        assert vaspwave.nb == 2
+        assert_allclose(vaspwave.a, np.diag([2.0, 3.0, 4.0]))
 
     def test_get_band_coeffs_minimal_vaspwave_h5(self):
         filename = Path(self.tmp_path) / "vaspwave.h5"
@@ -2914,17 +2933,52 @@ class TestVaspwave(MatSciTest):
         assert unk.data.shape == (vaspwave.nb, *vaspwave.ng)
         assert unk.data.dtype == np.complex128
 
-    def test_get_charge_density_minimal_vaspwave_h5(self):
+    def test_get_chgcar_minimal_vaspwave_h5(self):
         filename = Path(self.tmp_path) / "vaspwave.h5"
         self._write_minimal_vaspwave_h5(filename)
         vaspwave = Vaspwave(filename)
 
-        chgcar = vaspwave.get_charge_density()
+        chgcar = vaspwave.get_chgcar()
 
         assert isinstance(chgcar, Chgcar)
         assert chgcar.structure == vaspwave.initial_structure
         assert chgcar.dim == (2, 3, 4)
         assert_allclose(chgcar.data["total"], np.transpose(np.arange(24, dtype=float).reshape(4, 3, 2), (2, 1, 0)))
+
+    def test_get_chgcar_minimal_vaspwave_h5_without_structure(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        structure = Vaspwave(filename).initial_structure
+        self._remove_vaspwave_structure(filename)
+        vaspwave = Vaspwave(filename)
+
+        with pytest.raises(ValueError, match="single-step SCF"):
+            vaspwave.get_chgcar()
+
+        vaspwave.initial_structure = structure
+        chgcar = vaspwave.get_chgcar()
+
+        assert isinstance(chgcar, Chgcar)
+        assert chgcar.structure == structure
+        assert chgcar.dim == (2, 3, 4)
+        assert_allclose(chgcar.data["total"], np.transpose(np.arange(24, dtype=float).reshape(4, 3, 2), (2, 1, 0)))
+
+    def test_get_locpot_minimal_vaspwave_h5_without_structure(self):
+        filename = Path(self.tmp_path) / "vaspwave.h5"
+        self._write_minimal_vaspwave_h5(filename)
+        structure = Vaspwave(filename).initial_structure
+        self._remove_vaspwave_structure(filename)
+        vaspwave = Vaspwave(filename)
+
+        with pytest.raises(ValueError, match="single-step SCF"):
+            vaspwave.get_locpot()
+
+        vaspwave.initial_structure = structure
+        locpot = vaspwave.get_locpot()
+
+        assert isinstance(locpot, Locpot)
+        assert locpot.structure == structure
+        assert locpot.dim == (2, 3, 4)
 
     def test_get_locpot_minimal_vaspwave_h5(self):
         filename = Path(self.tmp_path) / "vaspwave.h5"
@@ -3221,9 +3275,9 @@ class TestVaspwave(MatSciTest):
         not (Path(TEST_DIR) / "outputs" / "vaspwave-H2.tar.gz").exists(),
         reason="Bundled H2 ncl vaspwave fixtures are not available.",
     )
-    def test_h2_ncl_fixture_charge_density_matches_chgcar(self):
+    def test_h2_ncl_fixture_get_chgcar_matches_chgcar(self):
         vaspwave = Vaspwave(self.h2_ncl_dir / "vaspwave.h5")
-        chgcar_h5 = vaspwave.get_charge_density()
+        chgcar_h5 = vaspwave.get_chgcar()
         chgcar = Chgcar.from_file(self.h2_ncl_dir / "CHGCAR")
 
         assert chgcar_h5.structure == chgcar.structure
