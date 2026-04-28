@@ -187,13 +187,17 @@ class ChargemolAnalysis:
         """
         name_pattern = f"{filename}{suffix}*" if filename != "POTCAR" else f"{filename}*"
         paths = glob(os.path.join(path, name_pattern))
-        if paths:
-            # Reverse sort so 'static' is preferred over 'relax2' over 'relax';
-            # use the suffix kwarg to avoid ambiguity when multiple files exist.
+        fpath = None
+        if len(paths) >= 1:
+            # using reverse=True because, if multiple files are present,
+            # they likely have suffixes 'static', 'relax', 'relax2', etc.
+            # and this would give 'static' over 'relax2' over 'relax'
+            # however, better to use 'suffix' kwarg to avoid this!
             paths.sort(reverse=True)
             if len(paths) > 1:
                 warnings.warn(f"Multiple files detected, using {os.path.basename(paths[0])}", stacklevel=2)
-            return os.path.abspath(paths[0])
+            fpath = paths[0]
+            return os.path.abspath(fpath)
         return None
 
     def _execute_chargemol(self, **job_control_kwargs):
