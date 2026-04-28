@@ -32,7 +32,7 @@ from numpy.linalg import norm
 from ruamel.yaml import YAML
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.linalg import expm, polar
-from scipy.spatial.distance import squareform
+from scipy.spatial import cKDTree, distance
 from tabulate import tabulate
 
 from pymatgen.core.bonds import CovalentBond, get_bond_length
@@ -2614,12 +2614,24 @@ class IStructure(SiteCollection, MSONable):
         super_ftol_2 = super_ftol * 2
 
         def pbc_coord_intersection(fc1, fc2, tol):
-            """Get the fractional coords in fc1 that have coordinates
+            """
+            Get the fractional coords in fc1 that have coordinates
             within tolerance to some coordinate in fc2.
             """
-            dist = fc1[:, None, :] - fc2[None, :, :]
-            dist -= np.round(dist)
-            return fc1[np.any(np.all(dist < tol, axis=-1), axis=-1)]
+            tol = np.asarray(tol, dtype=float)
+            scale = 1.0 / tol
+            boxsize = scale
+        
+            fc1_scaled = (fc1 % 1.0) * scale
+            fc2_scaled = (fc2 % 1.0) * scale
+        
+            # cKDTree requires all coords strictly < boxsize
+            np.clip(fc1_scaled, 0, boxsize * (1 - 1e-15), out=fc1_scaled)
+            np.clip(fc2_scaled, 0, boxsize * (1 - 1e-15), out=fc2_scaled)
+        
+            tree = cKDTree(fc2_scaled, boxsize=boxsize)
+            dist, _ = tree.query(fc1_scaled, p=np.inf, distance_upper_bound=1.0)
+            return fc1[np.isfinite(dist)]
 
         # Here we reduce the number of min_vecs by enforcing that every
         # vector in min_vecs approximately maps each site onto a similar site.
@@ -4906,7 +4918,7 @@ class Structure(IStructure, collections.abc.MutableSequence):
         if dist_mat.shape == (1, 1):
             return self
 
-        clusters = fcluster(linkage(squareform((dist_mat + dist_mat.T) / 2)), tol, "distance")
+        clusters = fcluster(linkage(distance.squareform((dist_mat + dist_mat.T) / 2)), tol, "distance")
 
         sites: list[PeriodicSite] = []
         for cluster in np.unique(clusters):
