@@ -89,7 +89,7 @@ class ChargemolAnalysis:
         path: str | Path | None = None,
         atomic_densities_path: str | Path | None = None,
         run_chargemol: bool = True,
-        tmpdir_name: str | None = None,
+        run_dir: str | None = None,
     ) -> None:
         """Initialize the Chargemol Analysis.
 
@@ -102,13 +102,13 @@ class ChargemolAnalysis:
                 Only used if run_chargemol is True. Default: None.
             run_chargemol (bool): Whether to run the Chargemol analysis. If False,
                 the existing Chargemol output files will be read from path. Default: True.
-            tmpdir_name (str | None): Name for the working subdirectory created inside
-                path for Chargemol input/output files. If None (default), a system
-                temporary directory is used and deleted automatically.
+            run_dir (str | None): Name of the subdirectory to create inside path for
+                Chargemol input/output files. If None (default), a system temporary
+                directory is used and deleted automatically.
         """
         path = path or os.getcwd()
-        self._path = str(path)
-        self._tmpdir_name = tmpdir_name
+        self._vasp_dir = str(path)
+        self._run_dir = run_dir
         if run_chargemol and not CHARGEMOL_EXE:
             raise OSError(
                 "ChargemolAnalysis requires the Chargemol executable to be in PATH."
@@ -117,7 +117,7 @@ class ChargemolAnalysis:
             )
         if atomic_densities_path == "":
             atomic_densities_path = os.getcwd()
-        self._atomic_densities_path = str(atomic_densities_path)
+        self._atomic_densities_path = str(atomic_densities_path) if atomic_densities_path is not None else None
 
         self._chgcar_path = self._get_filepath(path, "CHGCAR")
         self._potcar_path = self._get_filepath(path, "POTCAR")
@@ -185,21 +185,15 @@ class ChargemolAnalysis:
         Returns:
             str: Absolute path to the file.
         """
-        if filename == "POTCAR":
-            paths = glob(os.path.join(path, f"{filename}*"))
-        else:
-            paths = glob(os.path.join(path, f"{filename}{suffix}")) + glob(os.path.join(path, f"{filename}{suffix}.gz"))
-        fpath = None
-        if len(paths) >= 1:
-            # using reverse=True because, if multiple files are present,
-            # they likely have suffixes 'static', 'relax', 'relax2', etc.
-            # and this would give 'static' over 'relax2' over 'relax'
-            # however, better to use 'suffix' kwarg to avoid this!
+        name_pattern = f"{filename}{suffix}*" if filename != "POTCAR" else f"{filename}*"
+        paths = glob(os.path.join(path, name_pattern))
+        if paths:
+            # Reverse sort so 'static' is preferred over 'relax2' over 'relax';
+            # use the suffix kwarg to avoid ambiguity when multiple files exist.
             paths.sort(reverse=True)
             if len(paths) > 1:
                 warnings.warn(f"Multiple files detected, using {os.path.basename(paths[0])}", stacklevel=2)
-            fpath = paths[0]
-            return os.path.abspath(fpath)
+            return os.path.abspath(paths[0])
         return None
 
     def _execute_chargemol(self, **job_control_kwargs):
@@ -213,15 +207,15 @@ class ChargemolAnalysis:
             job_control_kwargs: Keyword arguments for _write_jobscript_for_chargemol.
         """
         cwd = os.getcwd()
-        if self._tmpdir_name is None:
-            tmp_dir_ctx: contextlib.AbstractContextManager = TemporaryDirectory()
+        if self._run_dir is None:
+            run_ctx: contextlib.AbstractContextManager = TemporaryDirectory()
         else:
-            tmp_dir = os.path.join(self._path, self._tmpdir_name)
-            os.makedirs(tmp_dir, exist_ok=True)
-            tmp_dir_ctx = contextlib.nullcontext(tmp_dir)
+            run_dir = os.path.join(self._vasp_dir, self._run_dir)
+            os.makedirs(run_dir, exist_ok=True)
+            run_ctx = contextlib.nullcontext(run_dir)
 
-        with tmp_dir_ctx as tmp_dir:
-            os.chdir(tmp_dir)
+        with run_ctx as run_dir:
+            os.chdir(run_dir)
             try:
                 try:
                     for file_name in ("chgcar", "aeccar0", "aeccar2"):
@@ -230,10 +224,8 @@ class ChargemolAnalysis:
                 except OSError:
                     logger.exception("Error copying files.")
 
-                # write job_script file:
                 self._write_jobscript_for_chargemol(**job_control_kwargs)
 
-                # Run Chargemol
                 with subprocess.Popen(
                     CHARGEMOL_EXE,
                     stdout=subprocess.PIPE,
@@ -247,7 +239,7 @@ class ChargemolAnalysis:
                         "Please check your Chargemol installation."
                     )
 
-                self._from_data_dir(chargemol_output_path=tmp_dir)
+                self._from_data_dir(chargemol_output_path=run_dir)
             finally:
                 os.chdir(cwd)
 
