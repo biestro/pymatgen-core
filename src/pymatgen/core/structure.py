@@ -2621,14 +2621,14 @@ class IStructure(SiteCollection, MSONable):
             tol = np.asarray(tol, dtype=float)
             scale = 1.0 / tol
             boxsize = scale
-        
+
             fc1_scaled = (fc1 % 1.0) * scale
             fc2_scaled = (fc2 % 1.0) * scale
-        
+
             # cKDTree requires all coords strictly < boxsize
             np.clip(fc1_scaled, 0, boxsize * (1 - 1e-15), out=fc1_scaled)
             np.clip(fc2_scaled, 0, boxsize * (1 - 1e-15), out=fc2_scaled)
-        
+
             tree = cKDTree(fc2_scaled, boxsize=boxsize)
             dist, _ = tree.query(fc1_scaled, p=np.inf, distance_upper_bound=1.0)
             return fc1[np.isfinite(dist)]
