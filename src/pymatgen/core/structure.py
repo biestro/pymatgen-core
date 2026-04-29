@@ -2587,6 +2587,9 @@ class IStructure(SiteCollection, MSONable):
         Returns:
             The most primitive structure found.
         """
+        if tolerance <= 0:
+            raise ValueError("tolerance cannot be <=0 for Structure.get_primitive_structure()!")
+        
         if constrain_latt is None:
             constrain_latt = []
 
