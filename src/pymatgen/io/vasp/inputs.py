@@ -799,6 +799,22 @@ class Incar(UserDict, MSONable):
     with open(os.path.join(MODULE_DIR, "incar_parameters.json"), encoding="utf-8") as json_file:
         INCAR_PARAMS: ClassVar[dict[Literal["type", "values"], Any]] = orjson.loads(json_file.read())
 
+    LOCPROJ_YLM_SPECS = [
+        "s",
+        "p",     "py", "pz", "px",
+        "d",     "dxy", "dyz", "dz2", "dxz", "dx2-y2",
+        "f",     "fy(3x2-y2)", "fxyz", "fyz2", "fz3", "fxz2", "fz(x2-y2)", "fx(x2-3y2)",
+        "sp",    "sp-1", "sp-2",
+        "sp2",   "sp2-1", "sp2-2", "sp2-3",
+        "sp3",   "sp3-1", "sp3-2", "sp3-3", "sp3-4",
+        "sp3d",  "sp3d-1", "sp3d-2", "sp3d-3", "sp3d-4", "sp3d-5",
+        "sp3d2", "sp3d2-1", "sp3d2-2", "sp3d2-3", "sp3d2-4", "sp3d2-5", "sp3d2-6"
+    ]
+
+    LOCPROJ_RADIAL_SPECS = [
+        "Ps", "Pr", "Hy"
+    ]
+
     def __init__(self, params: Mapping[str, Any] | None = None) -> None:
         """
         Clean up params and create an Incar object.
@@ -825,6 +841,39 @@ class Incar(UserDict, MSONable):
             params.get("LSORBIT") or params.get("LNONCOLLINEAR")
         ):
             params["MAGMOM"] = [params["MAGMOM"][idx * 3 : (idx + 1) * 3] for idx in range(len(params["MAGMOM"]) // 3)]
+        elif (params.get("LOCPROJ")):
+            # parse locproj to a good format
+            locproj = params["LOCPROJ"]
+            if isinstance(locproj, str):
+                locproj_parsed = self.parse_locproj(locproj)
+            elif isinstance(locproj, list) and all(isinstance(x, str) for x in locproj):
+                locproj_parsed = []
+                for entry in locproj:
+                    locproj_parsed.extend(self.parse_locproj(entry))
+            elif isinstance(locproj, list) and all(isinstance(x, list) and len(x) == 3 for x in locproj):
+                locproj_parsed = []
+                for entry in locproj:
+                    idx, orb, rad_ = entry
+                    if orb.lower() not in [y.lower() for y in self.LOCPROJ_YLM_SPECS]:
+                        warnings.warn(
+                            f"LOCPROJ orbital '{orb}' is not in recognized options: {self.LOCPROJ_YLM_SPECS}.",
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                    if rad_ not in self.LOCPROJ_RADIAL_SPECS:
+                        warnings.warn(
+                            f"LOCPROJ radial '{rad_}' is not in recognized options: {self.LOCPROJ_RADIAL_SPECS}.",
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                    locproj_parsed.append(entry)
+                
+            else:
+                raise ValueError("LOCPROJ is not in a recognized format.")
+            print("Sanitized LOCPROJ:", locproj_parsed)
+            params["LOCPROJ"] = locproj_parsed
+
+        
 
         super().__init__(params)
 
@@ -881,6 +930,22 @@ class Incar(UserDict, MSONable):
         return dct
 
     @classmethod
+    def _validate_locproj_entry(cls, orb: str, rad: str, stacklevel: int = 3) -> None:
+        """Warning for when LOCPROJ specs are not matching the allowed values"""
+        if orb.lower() not in [y.lower() for y in cls.LOCPROJ_YLM_SPECS]:
+            warnings.warn(
+                f"LOCPROJ orbital '{orb}' is not in recognized options: {cls.LOCPROJ_YLM_SPECS}.",
+                UserWarning,
+                stacklevel=stacklevel,
+            )
+        if rad not in cls.LOCPROJ_RADIAL_SPECS:
+            warnings.warn(
+                f"LOCPROJ radial '{rad}' is not in recognized options: {cls.LOCPROJ_RADIAL_SPECS}.",
+                UserWarning,
+                stacklevel=stacklevel,
+            )
+
+    @classmethod
     def from_dict(cls, dct: dict[str, Any]) -> Self:
         """
         Args:
@@ -909,6 +974,8 @@ class Incar(UserDict, MSONable):
         keys: list[str] = sorted(self) if sort_keys else list(self)
         lines = []
         for key in keys:
+
+                
             if key == "MAGMOM" and isinstance(self[key], list):
                 value = []
 
@@ -924,10 +991,19 @@ class Incar(UserDict, MSONable):
                         value.append(f"{len(tuple(group))}*{_key}")
 
                 lines.append([key, " ".join(value)])
+
+
+            # print(key == "LOCPROJ")
+            elif key == "LOCPROJ" and isinstance(self[key], list):
+                locproj_inside = "; ".join(self[key])
+                locproj_string = f"\"{locproj_inside}\"" # format of "1 : s : Hy; 2: p : Hy; ..." as required by VASP
+
+                lines.append([key, locproj_string])
             elif isinstance(self[key], list):
                 lines.append([key, " ".join(map(str, self[key]))])
             else:
                 lines.append([key, self[key]])
+                
 
         if pretty:
             return str(tabulate([[line[0], "=", line[1]] for line in lines], tablefmt="plain"))
@@ -941,6 +1017,43 @@ class Incar(UserDict, MSONable):
         """
         with zopen(filename, mode="wt", encoding="utf-8") as file:
             file.write(str(self))  # type:ignore[arg-type]
+
+    @classmethod
+    def parse_locproj(cls, val):
+        ylm = cls.LOCPROJ_YLM_SPECS
+        rad = cls.LOCPROJ_RADIAL_SPECS
+
+        # Strip inline comments (! or #)
+        val = re.sub(r"[!#].*", "", val)
+
+        # Each entry must end at ; or end-of-string, not bleed into next
+        pattern = re.compile(
+            r"(\d+(?:\s+\d+)*)\s*:\s*([^:;\s]+)\s*:\s*([^:;\s]+)\s*(?:;|$)",
+            re.IGNORECASE
+        )
+        results = []
+        for match in pattern.finditer(val):
+            indices = [int(i) for i in match.group(1).split()]
+            orb = match.group(2)
+            rad_ = match.group(3)
+
+            if orb.lower() not in [y.lower() for y in ylm]:
+                warnings.warn(
+                    f"LOCPROJ orbital '{orb}' is not in recognized options: {ylm}.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+
+            if rad_ not in rad:
+                warnings.warn(
+                    f"LOCPROJ radial '{rad_}' is not in recognized options: {rad}.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+
+            for idx in indices:
+                results.append([idx, orb, rad_])
+        return results
 
     @classmethod
     def from_file(cls, filename: PathLike) -> Self:
@@ -1020,6 +1133,7 @@ class Incar(UserDict, MSONable):
         lower_str_keys = ("ML_MODE",)
         # String keywords to read "as is" (no case transformation, only stripped)
         as_is_str_keys = ("SYSTEM", "WANNIER90_WIN")
+        multiline_str_keys = ("LOCPROJ",) # <-- Modified
 
         try:
             if key in lower_str_keys:
@@ -1027,6 +1141,22 @@ class Incar(UserDict, MSONable):
 
             if key in as_is_str_keys:
                 return val.strip()
+            
+            if key in multiline_str_keys:
+                # really just LOCPROJ tag
+                return cls.parse_locproj(val)
+                # pattern = re.compile(r"(\d+(?:\s+\d+)*)\s*:\s*(" + "|".join(map(re.escape, cls.LOCPROJ_YLM_SPECS)) + r")\s*:\s*(" + "|".join(map(re.escape, cls.LOCPROJ_RADIAL_SPECS)) + r")", re.IGNORECASE)
+                # results = []
+                # for match in pattern.finditer(val):
+                #     indices = [int(i) for i in match.group(1).split()]
+                #     orb = match.group(2)
+                #     rad = match.group(3)
+                #     for idx in indices:
+                #         results.append([idx, orb, rad])
+                # if not results:
+                #     warnings.warn(f"LOCPROJ value could not be parsed: '{val}'", BadIncarWarning, stacklevel=2)
+                    
+                # return results
 
             if "list" in incar_types:
 
@@ -1087,73 +1217,6 @@ class Incar(UserDict, MSONable):
             return False
 
         return val.strip().capitalize()
-
-    def diff(self, other: Self) -> dict[str, dict[str, Any]]:
-        """
-        Diff function for Incar. Compare two Incars and indicate which
-        parameters are the same and which are not. Useful for checking whether
-        two runs were done using the same parameters.
-
-        Args:
-            other (Incar): The other Incar object to compare to.
-
-        Returns:
-            dict[str, dict]: of the following format:
-                {"Same" : parameters_that_are_the_same, "Different": parameters_that_are_different}
-                Note that the parameters are return as full dictionaries of values. E.g. {"ISIF":3}
-        """
-        same_params = {}
-        different_params = {}
-        for k1, v1 in self.items():
-            if k1 not in other:
-                different_params[k1] = {"INCAR1": v1, "INCAR2": None}
-            elif v1 != other[k1]:
-                different_params[k1] = {"INCAR1": v1, "INCAR2": other[k1]}
-            else:
-                same_params[k1] = v1
-
-        for k2, v2 in other.items():
-            if k2 not in same_params and k2 not in different_params and k2 not in self:
-                different_params[k2] = {"INCAR1": None, "INCAR2": v2}
-
-        return {"Same": same_params, "Different": different_params}
-
-    def check_params(self) -> None:
-        """Check INCAR for invalid tags or values.
-        If a tag doesn't exist, calculation will still run, however VASP
-        will ignore the tag and set it as default without letting you know.
-        """
-        for tag, val in self.items():
-            # Check if the tag exists
-            if tag not in self.INCAR_PARAMS:
-                warnings.warn(
-                    f"Cannot find {tag} in the list of INCAR tags",
-                    BadIncarWarning,
-                    stacklevel=2,
-                )
-                continue
-
-            # Check value type
-            param_type: str = self.INCAR_PARAMS[tag].get("type")
-            allowed_values: list[Any] = self.INCAR_PARAMS[tag].get("values")
-
-            if param_type is not None and not isinstance(val, eval(param_type)):  # noqa: S307
-                warnings.warn(f"{tag}: {val} is not a {param_type}", BadIncarWarning, stacklevel=2)
-
-            # Only check value when it's not None,
-            # meaning there is recording for corresponding value
-            if allowed_values is not None:
-                allowed_values = [
-                    self.proc_val(tag, item) if isinstance(item, str) else item for item in allowed_values
-                ]
-
-                if val not in allowed_values:
-                    warnings.warn(
-                        f"{tag}: Cannot find {val} in the list of values",
-                        BadIncarWarning,
-                        stacklevel=2,
-                    )
-
 
 class BadIncarWarning(UserWarning):
     """Warning class for bad INCAR parameters."""
