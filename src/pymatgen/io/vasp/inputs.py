@@ -14,7 +14,7 @@ import os
 import re
 import subprocess
 import warnings
-from collections import Counter, UserDict
+from collections import Counter, UserDict, defaultdict
 from enum import Enum, unique
 from glob import glob
 from hashlib import sha256
@@ -995,7 +995,15 @@ class Incar(UserDict, MSONable):
 
             # print(key == "LOCPROJ")
             elif key == "LOCPROJ" and isinstance(self[key], list):
-                locproj_inside = "; ".join(self[key])
+                grouped = defaultdict(list)
+                for num, letter, label in self[key]:
+                    grouped[(letter, label)].append(num)
+
+                locproj_list = [
+                    f"{' '.join(map(str, sorted(nums)))} : {letter} : {label}"
+                    for (letter, label), nums in grouped.items()
+                ]
+                locproj_inside = "; ".join(locproj_list)
                 locproj_string = f"\"{locproj_inside}\"" # format of "1 : s : Hy; 2: p : Hy; ..." as required by VASP
 
                 lines.append([key, locproj_string])
