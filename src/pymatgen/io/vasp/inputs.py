@@ -1,6 +1,5 @@
 """
-Classes for reading/manipulating/writing VASP input files.
-All major VASP input files.
+Classes for reading/manipulating/writing VASP input files. All major VASP input files.
 """
 
 from __future__ import annotations
@@ -799,7 +798,9 @@ class Incar(UserDict, MSONable):
     with open(os.path.join(MODULE_DIR, "incar_parameters.json"), encoding="utf-8") as json_file:
         INCAR_PARAMS: ClassVar[dict[Literal["type", "values"], Any]] = orjson.loads(json_file.read())
 
-    LOCPROJ_YLM_SPECS = [
+
+    # Available LOCPROJ orbital values
+    LOCPROJ_YLM_SPECS = (
         "s",
         "p",     "py", "pz", "px",
         "d",     "dxy", "dyz", "dz2", "dxz", "dx2-y2",
@@ -809,11 +810,11 @@ class Incar(UserDict, MSONable):
         "sp3",   "sp3-1", "sp3-2", "sp3-3", "sp3-4",
         "sp3d",  "sp3d-1", "sp3d-2", "sp3d-3", "sp3d-4", "sp3d-5",
         "sp3d2", "sp3d2-1", "sp3d2-2", "sp3d2-3", "sp3d2-4", "sp3d2-5", "sp3d2-6"
-    ]
+    )
 
-    LOCPROJ_RADIAL_SPECS = [
+    LOCPROJ_RADIAL_SPECS = (
         "Ps", "Pr", "Hy"
-    ]
+    )
 
     def __init__(self, params: Mapping[str, Any] | None = None) -> None:
         """
@@ -869,7 +870,7 @@ class Incar(UserDict, MSONable):
                     locproj_parsed.append(entry)
                 
             else:
-                raise ValueError("LOCPROJ is not in a recognized format.")
+                raise ValueError("LOCPROJ {locproj} is not in a recognized format.")
             print("Sanitized LOCPROJ:", locproj_parsed)
             params["LOCPROJ"] = locproj_parsed
 
@@ -1028,7 +1029,8 @@ class Incar(UserDict, MSONable):
 
         # Each entry must end at ; or end-of-string, not bleed into next
         pattern = re.compile(
-            r"(\d+(?:\s+\d+)*)\s*:\s*([^:;\s]+)\s*:\s*([^:;\s]+)\s*(?:;|$)",
+            # r"(\d+(?:\s+\d+)*)\s*:\s*([^:;\s]+)\s*:\s*([^:;\s]+)\s*(?:;|$)", # sometimes reads Ps" instead of Ps
+            r"(\d+(?:\s+\d+)*)\s*:\s*([A-Za-z0-9_]+)\s*:\s*([A-Za-z0-9_]+)\s*(?:;|$)",
             re.IGNORECASE
         )
         results = []
