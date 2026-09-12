@@ -870,7 +870,7 @@ class Incar(UserDict, MSONable):
                     locproj_parsed.append(entry)
                 
             else:
-                raise ValueError("LOCPROJ {locproj} is not in a recognized format.")
+                raise ValueError(f"LOCPROJ {locproj} is not in a recognized format.")
             print("Sanitized LOCPROJ:", locproj_parsed)
             params["LOCPROJ"] = locproj_parsed
 
