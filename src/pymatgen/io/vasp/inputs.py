@@ -819,7 +819,17 @@ class Incar(UserDict, MSONable):
         "Ps", "Pr", "Hy"
     )
 
-    W90_PARAMS_TYPE = {'exclude_bands': str, 'kmesh_tol': float, 'write_hr': bool, 'write_xyz': bool, 'guiding_centres': bool}
+    W90_PARAMS_TYPE = {
+        'exclude_bands': str, 
+        'kmesh_tol': float, 
+        'write_hr': bool, 
+        'write_xyz': bool, 
+        'guiding_centres': bool,
+        'dis_win_min': float,
+        'dis_win_max': float,
+        'dis_froz_min': float,
+        'dis_froz_max': float,
+        }
 
 
     def __init__(self, params: Mapping[str, Any] | None = None) -> None:
