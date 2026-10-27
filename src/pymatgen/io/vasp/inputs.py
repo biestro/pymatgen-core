@@ -829,6 +829,8 @@ class Incar(UserDict, MSONable):
         'dis_win_max': float,
         'dis_froz_min': float,
         'dis_froz_max': float,
+        'bands_plot': bool,
+        'bands_num_points': int,
         }
 
     # W90_BLOCKS_TYPE = {}
