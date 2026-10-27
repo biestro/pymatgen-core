@@ -1061,6 +1061,7 @@ class Incar(UserDict, MSONable):
             if isinstance(value, dict):
                 w90_split = {}
                 for key, val in value.items():
+                    key = key.replace(" ", "")
                     w90_split[key] = W90_PARAMS_TYPE[key](val)
                 return w90_split
             else:
@@ -1080,6 +1081,7 @@ class Incar(UserDict, MSONable):
         for line in w90_string.splitlines():
             # parse the value from each line
             key, val = line.split("=")
+            key = key.replace(" ", "")
             val_parsed = W90_PARAMS_TYPE[key](val)
             w90_split[key] = val_parsed
 
