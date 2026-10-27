@@ -831,6 +831,8 @@ class Incar(UserDict, MSONable):
         'dis_froz_max': float,
         }
 
+    # W90_BLOCKS_TYPE = {}
+
 
     def __init__(self, params: Mapping[str, Any] | None = None) -> None:
         """
@@ -1027,19 +1029,23 @@ class Incar(UserDict, MSONable):
                 locproj_string = f"\"{locproj_inside}\"" # format of "1 : s : Hy; 2: p : Hy; ..." as required by VASP
 
                 lines.append([key, locproj_string])
-
+            
             elif key == "WANNIER90_WIN" and isinstance(self[key], dict):
-                pass
-                # wannier90_win_str = ["\n"]
-                w90_win = ["\""]
+                w90_win = ['"']
+
                 for w90_key, val in self[key].items():
-                    w90_win.append(f"{w90_key}={str(val)}")
-                w90_win.append("\"")
+                    if val is None:
+                        continue
+
+                    if w90_key == "kpoint_path":
+                        w90_win.append(self.wannier90_kpath(val))
+                    else:
+                        w90_win.append(f"{w90_key}={val}")
+
+                w90_win.append('"')
                 w90_string = "\n".join(w90_win)
 
                 lines.append([key, w90_string])
-                # for w90_key, val in self['WANNIER90_WIN'].items():
-                #     lines.append(f"{w90_key}={str(val)}")
                 
 
 
@@ -1065,45 +1071,158 @@ class Incar(UserDict, MSONable):
 
     
     @classmethod
-    def parse_wannier90_win(cls, value: str) -> str:
-        """ parses WANNIER90_WIN tag"""
+    def parse_wannier90_win(cls, value: str | dict) -> dict:
+        """Parse scalar parameters and a kpoint_path block."""
 
+        def parse_scalar(key, val):
+            converter = cls.W90_PARAMS_TYPE[key]
+
+            # bool("false") would incorrectly return True.
+            if converter is bool and isinstance(val, str):
+                text = val.strip().lower().strip(".")
+                if text in {"true", "t"}:
+                    return True
+                if text in {"false", "f"}:
+                    return False
+                raise ValueError(f"Invalid boolean for {key}: {val!r}")
+
+            return converter(val)
+
+        if isinstance(value, dict):
+            result = {}
+            for key, val in value.items():
+                key = key.strip().lower().replace(" ", "")
+                if val is None:
+                    continue
+
+                if key == "kpoint_path":
+                    # Accept either a HighSymmKpath-like object or its .kpath dict.
+                    path_data = getattr(val, "kpath", val)
+                    result[key] = {
+                        "kpoints": {
+                            label: [float(x) for x in coords]
+                            for label, coords in path_data["kpoints"].items()
+                        },
+                        "path": [list(path) for path in path_data["path"]],
+                    }
+                else:
+                    result[key] = parse_scalar(key, val)
+
+            return result
 
         if not isinstance(value, str):
-            if isinstance(value, dict):
-                w90_split = {}
-                for key, val in value.items():
-                    key = key.replace(" ", "")
-                    if val is not None:
-                        w90_split[key] = cls.W90_PARAMS_TYPE[key](val)
-                return w90_split
-            else:
-
-                raise TypeError("WANNIER90_WIN must be a multiline string or a dict.")
+            raise TypeError("WANNIER90_WIN must be a multiline string or dict.")
 
         value = value.strip()
-
-
-        # Remove a matching pair of surrounding quotes.
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
-            # print(value)
 
-        w90_string = dedent(value).strip()
-        w90_split = {}
-        for line in w90_string.splitlines():
-            # parse the value from each line
-            key, val = line.split("=")
-            key = key.replace(" ", "")
-            val_parsed = cls.W90_PARAMS_TYPE[key](val)
-            w90_split[key] = val_parsed
+        result = {}
+        path_data = None
 
-            
+        for raw_line in dedent(value).splitlines():
+            line = re.split(r"[!#]", raw_line, maxsplit=1)[0].strip()
+            if not line:
+                continue
+
+            if line.lower() == "begin kpoint_path":
+                if path_data is not None or "kpoint_path" in result:
+                    raise ValueError("Duplicate or nested kpoint_path block.")
+                path_data = {"kpoints": {}, "path": []}
+                continue
+
+            if line.lower() == "end kpoint_path":
+                if path_data is None:
+                    raise ValueError("end kpoint_path without begin.")
+                result["kpoint_path"] = path_data
+                path_data = None
+                continue
+
+            if path_data is not None:
+                fields = line.split()
+                if len(fields) != 8:
+                    raise ValueError(f"Invalid kpoint_path segment: {line}")
+
+                labels = []
+                for offset in (0, 4):
+                    label = fields[offset]
+                    coords = [float(x) for x in fields[offset + 1:offset + 4]]
+
+                    existing = path_data["kpoints"].get(label)
+                    if existing is not None and existing != coords:
+                        raise ValueError(f"Conflicting coordinates for {label!r}.")
+
+                    path_data["kpoints"][label] = coords
+                    labels.append(label)
+
+                # Preserve each segment, including disconnected branches.
+                path_data["path"].append(labels)
+                continue
+
+            if "=" not in line:
+                raise ValueError(f"Expected key = value: {line}")
+
+            key, val = line.split("=", 1)
+            key = key.strip().lower().replace(" ", "")
+            result[key] = parse_scalar(key, val.strip())
+
+        if path_data is not None:
+            raise ValueError("Missing end kpoint_path.")
+
+        return result
+
+    @staticmethod
+    def wannier90_kpath(kpath, precision=8) -> str:
+        """Format a HighSymmKpath-like object or its .kpath dictionary."""
+        data = getattr(kpath, "kpath", kpath)
+
+        def format_endpoint(label):
+            clean_label = label.replace(r"\Gamma", "G").replace("Γ", "G")
+            clean_label = re.sub(r"[\s${}\\]", "", clean_label)
+            if clean_label.upper() == "GAMMA":
+                clean_label = "G"
+
+            coords = data["kpoints"][label]
+            if len(coords) != 3:
+                raise ValueError(f"Expected three coordinates for {label!r}.")
+
+            return (
+                f"{clean_label}  "
+                + " ".join(f"{float(x):.{precision}f}" for x in coords)
+            )
+
+        lines = ["begin kpoint_path"]
+        for branch in data["path"]:
+            for start, end in zip(branch, branch[1:]):
+                lines.append(
+                    f"  {format_endpoint(start)}    {format_endpoint(end)}"
+                )
+
+        if len(lines) == 1:
+            raise ValueError("No path segments found.")
+
+        lines.append("end kpoint_path")
+        return "\n".join(lines)
 
 
+    @classmethod
+    def format_wannier90_win(cls, params: dict, precision=8) -> str:
+        """Serialize parameters into Wannier90 input text."""
+        params = cls.parse_wannier90_win(params)
+        lines = []
 
-        return w90_split
+        for key, val in params.items():
+            if key == "kpoint_path":
+                lines.append(cls.wannier90_kpath(val, precision))
+            else:
+                if isinstance(val, bool):
+                    val = ".true." if val else ".false."
+                elif isinstance(val, (list, tuple)):
+                    val = " ".join(map(str, val))
+                lines.append(f"{key} = {val}")
 
+        return "\n".join(lines)
+        
     @classmethod
     def parse_locproj(cls, val):
         ylm = cls.LOCPROJ_YLM_SPECS
