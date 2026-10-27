@@ -1074,7 +1074,8 @@ class Incar(UserDict, MSONable):
                 w90_split = {}
                 for key, val in value.items():
                     key = key.replace(" ", "")
-                    w90_split[key] = cls.W90_PARAMS_TYPE[key](val)
+                    if val is not None:
+                        w90_split[key] = cls.W90_PARAMS_TYPE[key](val)
                 return w90_split
             else:
 
