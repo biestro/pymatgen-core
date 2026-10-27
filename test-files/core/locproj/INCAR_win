@@ -1,0 +1,5 @@
+LOCPROJ = "1 : p : Ps 1; 1 2 : s sp3d-2 : Hy 1 2.0"
+WANNIER90_WIN = "
+kmesh_tol=1e-05
+write_xyz=True
+"

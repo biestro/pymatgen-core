@@ -830,7 +830,7 @@ class Incar(UserDict, MSONable):
         'dis_froz_min': float,
         'dis_froz_max': float,
         'bands_plot': bool,
-        'bands_num_points': int,
+        'bands_num_points': bool,
         }
 
     # W90_BLOCKS_TYPE = {}
@@ -881,7 +881,7 @@ class Incar(UserDict, MSONable):
                             UserWarning,
                             stacklevel=2,
                         )
-                    if rad_ not in self.LOCPROJ_RADIAL_SPECS:
+                    if str(rad_).split()[0] not in self.LOCPROJ_RADIAL_SPECS:
                         warnings.warn(
                             f"LOCPROJ radial '{rad_}' is not in recognized options: {self.LOCPROJ_RADIAL_SPECS}.",
                             UserWarning,
@@ -962,7 +962,7 @@ class Incar(UserDict, MSONable):
                 UserWarning,
                 stacklevel=stacklevel,
             )
-        if rad not in cls.LOCPROJ_RADIAL_SPECS:
+        if rad.split()[0] not in cls.LOCPROJ_RADIAL_SPECS:
             warnings.warn(
                 f"LOCPROJ radial '{rad}' is not in recognized options: {cls.LOCPROJ_RADIAL_SPECS}.",
                 UserWarning,
@@ -1038,11 +1038,11 @@ class Incar(UserDict, MSONable):
                 for w90_key, val in self[key].items():
                     if val is None:
                         continue
-
-                    if w90_key == "kpoint_path":
-                        w90_win.append(self.wannier90_kpath(val))
-                    else:
-                        w90_win.append(f"{w90_key}={val}")
+                    # adding blocks in the WANNIER90_WIN INCAR tag will crash VASP
+                    # if w90_key == "kpoint_path":
+                    #     w90_win.append(self.wannier90_kpath(val))
+                    # else:
+                    w90_win.append(f"{w90_key}={val}")
 
                 w90_win.append('"')
                 w90_string = "\n".join(w90_win)
@@ -1072,14 +1072,16 @@ class Incar(UserDict, MSONable):
 
 
     
+    from textwrap import dedent
+
+
     @classmethod
     def parse_wannier90_win(cls, value: str | dict) -> dict:
-        """Parse scalar parameters and a kpoint_path block."""
+        """Parse WANNIER90_WIN scalar parameters from a string or dict."""
 
         def parse_scalar(key, val):
             converter = cls.W90_PARAMS_TYPE[key]
 
-            # bool("false") would incorrectly return True.
             if converter is bool and isinstance(val, str):
                 text = val.strip().lower().strip(".")
                 if text in {"true", "t"}:
@@ -1094,117 +1096,63 @@ class Incar(UserDict, MSONable):
             result = {}
             for key, val in value.items():
                 key = key.strip().lower().replace(" ", "")
-                if val is None:
-                    continue
-
-                if key == "kpoint_path":
-                    # Accept either a HighSymmKpath-like object or its .kpath dict.
-                    path_data = getattr(val, "kpath", val)
-                    result[key] = {
-                        "kpoints": {
-                            label: [float(x) for x in coords]
-                            for label, coords in path_data["kpoints"].items()
-                        },
-                        "path": [list(path) for path in path_data["path"]],
-                    }
-                else:
+                if val is not None:
                     result[key] = parse_scalar(key, val)
-
             return result
 
         if not isinstance(value, str):
             raise TypeError("WANNIER90_WIN must be a multiline string or dict.")
 
         value = value.strip()
+
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
 
         result = {}
-        path_data = None
-
-        for raw_line in dedent(value).splitlines():
-            line = re.split(r"[!#]", raw_line, maxsplit=1)[0].strip()
+        for line in dedent(value).strip().splitlines():
+            line = line.strip()
             if not line:
                 continue
-
-            if line.lower() == "begin kpoint_path":
-                if path_data is not None or "kpoint_path" in result:
-                    raise ValueError("Duplicate or nested kpoint_path block.")
-                path_data = {"kpoints": {}, "path": []}
-                continue
-
-            if line.lower() == "end kpoint_path":
-                if path_data is None:
-                    raise ValueError("end kpoint_path without begin.")
-                result["kpoint_path"] = path_data
-                path_data = None
-                continue
-
-            if path_data is not None:
-                fields = line.split()
-                if len(fields) != 8:
-                    raise ValueError(f"Invalid kpoint_path segment: {line}")
-
-                labels = []
-                for offset in (0, 4):
-                    label = fields[offset]
-                    coords = [float(x) for x in fields[offset + 1:offset + 4]]
-
-                    existing = path_data["kpoints"].get(label)
-                    if existing is not None and existing != coords:
-                        raise ValueError(f"Conflicting coordinates for {label!r}.")
-
-                    path_data["kpoints"][label] = coords
-                    labels.append(label)
-
-                # Preserve each segment, including disconnected branches.
-                path_data["path"].append(labels)
-                continue
-
-            if "=" not in line:
-                raise ValueError(f"Expected key = value: {line}")
 
             key, val = line.split("=", 1)
             key = key.strip().lower().replace(" ", "")
             result[key] = parse_scalar(key, val.strip())
 
-        if path_data is not None:
-            raise ValueError("Missing end kpoint_path.")
-
         return result
 
-    @staticmethod
-    def wannier90_kpath(kpath, precision=8) -> str:
-        """Format a HighSymmKpath-like object or its .kpath dictionary."""
-        data = getattr(kpath, "kpath", kpath)
+    # @staticmethod
+    # KPOINT path block crashes VASP!
+    # def wannier90_kpath(kpath, precision=8) -> str:
+    #     """Format a HighSymmKpath-like object or its .kpath dictionary."""
+    #     data = getattr(kpath, "kpath", kpath)
 
-        def format_endpoint(label):
-            clean_label = label.replace(r"\Gamma", "G").replace("Γ", "G")
-            clean_label = re.sub(r"[\s${}\\]", "", clean_label)
-            if clean_label.upper() == "GAMMA":
-                clean_label = "G"
+    #     def format_endpoint(label):
+    #         clean_label = label.replace(r"\Gamma", "G").replace("Γ", "G")
+    #         clean_label = re.sub(r"[\s${}\\]", "", clean_label)
+    #         if clean_label.upper() == "GAMMA":
+    #             clean_label = "G"
 
-            coords = data["kpoints"][label]
-            if len(coords) != 3:
-                raise ValueError(f"Expected three coordinates for {label!r}.")
+    #         coords = data["kpoints"][label]
+    #         if len(coords) != 3:
+    #             raise ValueError(f"Expected three coordinates for {label!r}.")
 
-            return (
-                f"{clean_label}  "
-                + " ".join(f"{float(x):.{precision}f}" for x in coords)
-            )
+    #         return (
+    #             f"{clean_label}  "
+    #             + " ".join(f"{float(x):.{precision}f}" for x in coords)
+    #         )
 
-        lines = ["begin kpoint_path"]
-        for branch in data["path"]:
-            for start, end in zip(branch, branch[1:]):
-                lines.append(
-                    f"  {format_endpoint(start)}    {format_endpoint(end)}"
-                )
+    #     lines = ["begin kpoint_path"]
+    #     for branch in data["path"]:
+    #         for start, end in zip(branch, branch[1:]):
+    #             lines.append(
+    #                 f"  {format_endpoint(start)}    {format_endpoint(end)}"
+    #             )
 
-        if len(lines) == 1:
-            raise ValueError("No path segments found.")
+    #     if len(lines) == 1:
+    #         raise ValueError("No path segments found.")
 
-        lines.append("end kpoint_path")
-        return "\n".join(lines)
+    #     lines.append("end kpoint_path")
+    #     return "\n".join(lines)
 
 
     @classmethod
@@ -1214,14 +1162,11 @@ class Incar(UserDict, MSONable):
         lines = []
 
         for key, val in params.items():
-            if key == "kpoint_path":
-                lines.append(cls.wannier90_kpath(val, precision))
-            else:
-                if isinstance(val, bool):
-                    val = ".true." if val else ".false."
-                elif isinstance(val, (list, tuple)):
-                    val = " ".join(map(str, val))
-                lines.append(f"{key} = {val}")
+            if isinstance(val, bool):
+                val = ".true." if val else ".false."
+            elif isinstance(val, (list, tuple)):
+                val = " ".join(map(str, val))
+            lines.append(f"{key} = {val}")
 
         return "\n".join(lines)
         
@@ -1236,23 +1181,27 @@ class Incar(UserDict, MSONable):
         # Each entry must end at ; or end-of-string, not bleed into next
         pattern = re.compile(
             # r"(\d+(?:\s+\d+)*)\s*:\s*([^:;\s]+)\s*:\s*([^:;\s]+)\s*(?:;|$)", # sometimes reads Ps" instead of Ps
-            r"(\d+(?:\s+\d+)*)\s*:\s*([A-Za-z0-9_]+)\s*:\s*([A-Za-z0-9_]+)\s*(?:;|$)",
+            # radial is a tag optionally followed by numbers, e.g. "Pr", "Ps 1", "Hy 1.0 2.0"
+            # angular may list several orbitals, e.g. "s p d"
+            r"(\d+(?:\s+\d+)*)\s*:\s*([A-Za-z0-9_()\-]+(?:\s+[A-Za-z0-9_()\-]+)*)\s*:\s*"
+            r"([A-Za-z]+(?:\s+[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)*)\s*(?=;|\"|'|$)",
             re.IGNORECASE
         )
         results = []
         for match in pattern.finditer(val):
             indices = [int(i) for i in match.group(1).split()]
-            orb = match.group(2)
-            rad_ = match.group(3)
+            orbs = match.group(2).split()
+            rad_ = " ".join(match.group(3).split())
 
-            if orb.lower() not in [y.lower() for y in ylm]:
-                warnings.warn(
-                    f"LOCPROJ orbital '{orb}' is not in recognized options: {ylm}.",
-                    UserWarning,
-                    stacklevel=3,
-                )
+            for orb in orbs:
+                if orb.lower() not in [y.lower() for y in ylm]:
+                    warnings.warn(
+                        f"LOCPROJ orbital '{orb}' is not in recognized options: {ylm}.",
+                        UserWarning,
+                        stacklevel=3,
+                    )
 
-            if rad_ not in rad:
+            if rad_.split()[0] not in rad:
                 warnings.warn(
                     f"LOCPROJ radial '{rad_}' is not in recognized options: {rad}.",
                     UserWarning,
@@ -1260,7 +1209,8 @@ class Incar(UserDict, MSONable):
                 )
 
             for idx in indices:
-                results.append([idx, orb, rad_])
+                for orb in orbs:
+                    results.append([idx, orb, rad_])
         return results
 
     @classmethod
