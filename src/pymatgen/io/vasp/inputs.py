@@ -1015,8 +1015,20 @@ class Incar(UserDict, MSONable):
 
                 lines.append([key, locproj_string])
 
-            elif key == "WANNIER90_WIN" and isinstance(self[key], list):
+            elif key == "WANNIER90_WIN" and isinstance(self[key], dict):
                 pass
+                # wannier90_win_str = ["\n"]
+                w90_win = ["\""]
+                for w90_key, val in self[key].items():
+                    w90_win.append(f"{w90_key}={str(val)}")
+                w90_win.append("\"")
+                w90_string = "\n".join(w90_win)
+
+                lines.append([key, w90_string])
+                # for w90_key, val in self['WANNIER90_WIN'].items():
+                #     lines.append(f"{w90_key}={str(val)}")
+                
+
 
             elif isinstance(self[key], list):
                 lines.append([key, " ".join(map(str, self[key]))])
@@ -1043,10 +1055,17 @@ class Incar(UserDict, MSONable):
     def parse_wannier90_win(cls, value: str) -> str:
         """ parses WANNIER90_WIN tag"""
 
-
         W90_PARAMS_TYPE = {'exclude_bands': str, 'kmesh_tol': float, 'write_hr': bool, 'write_xyz': bool, 'guiding_centres': bool}
+
         if not isinstance(value, str):
-            raise TypeError("WANNIER90_WIN must be a multiline string.")
+            if isinstance(value, dict):
+                w90_split = {}
+                for key, val in value.items():
+                    w90_split[key] = W90_PARAMS_TYPE[key](val)
+                return w90_split
+            else:
+
+                raise TypeError("WANNIER90_WIN must be a multiline string or a dict.")
 
         value = value.strip()
 
