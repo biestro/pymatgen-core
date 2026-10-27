@@ -38,6 +38,9 @@ from pymatgen.electronic_structure.core import Magmom
 from pymatgen.util.io_utils import clean_lines
 from pymatgen.util.string import str_delimited
 
+from textwrap import dedent
+
+
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from typing import Any, ClassVar, Literal, Self
@@ -842,7 +845,7 @@ class Incar(UserDict, MSONable):
             params.get("LSORBIT") or params.get("LNONCOLLINEAR")
         ):
             params["MAGMOM"] = [params["MAGMOM"][idx * 3 : (idx + 1) * 3] for idx in range(len(params["MAGMOM"]) // 3)]
-        elif (params.get("LOCPROJ")):
+        if (params.get("LOCPROJ")):
             # parse locproj to a good format
             locproj = params["LOCPROJ"]
             if isinstance(locproj, str):
@@ -868,13 +871,16 @@ class Incar(UserDict, MSONable):
                             stacklevel=2,
                         )
                     locproj_parsed.append(entry)
-                
+
+            
             else:
                 raise ValueError(f"LOCPROJ {locproj} is not in a recognized format.")
             print("Sanitized LOCPROJ:", locproj_parsed)
             params["LOCPROJ"] = locproj_parsed
 
-        
+        # print(f": {params.get("WANNIER90_WIN")}")
+        if (params.get("WANNIER90_WIN")):
+            params["WANNIER90_WIN"] = self.parse_wannier90_win(params["WANNIER90_WIN"])
 
         super().__init__(params)
 
@@ -1008,6 +1014,10 @@ class Incar(UserDict, MSONable):
                 locproj_string = f"\"{locproj_inside}\"" # format of "1 : s : Hy; 2: p : Hy; ..." as required by VASP
 
                 lines.append([key, locproj_string])
+
+            elif key == "WANNIER90_WIN" and isinstance(self[key], list):
+                pass
+
             elif isinstance(self[key], list):
                 lines.append([key, " ".join(map(str, self[key]))])
             else:
@@ -1026,6 +1036,39 @@ class Incar(UserDict, MSONable):
         """
         with zopen(filename, mode="wt", encoding="utf-8") as file:
             file.write(str(self))  # type:ignore[arg-type]
+
+
+    
+    @classmethod
+    def parse_wannier90_win(cls, value: str) -> str:
+        """ parses WANNIER90_WIN tag"""
+
+
+        W90_PARAMS_TYPE = {'exclude_bands': str, 'kmesh_tol': float, 'write_hr': bool, 'write_xyz': bool, 'guiding_centres': bool}
+        if not isinstance(value, str):
+            raise TypeError("WANNIER90_WIN must be a multiline string.")
+
+        value = value.strip()
+
+
+        # Remove a matching pair of surrounding quotes.
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+            value = value[1:-1]
+            # print(value)
+
+        w90_string = dedent(value).strip()
+        w90_split = {}
+        for line in w90_string.splitlines():
+            # parse the value from each line
+            key, val = line.split("=")
+            val_parsed = W90_PARAMS_TYPE[key](val)
+            w90_split[key] = val_parsed
+
+            
+
+
+
+        return w90_split
 
     @classmethod
     def parse_locproj(cls, val):
@@ -1143,7 +1186,7 @@ class Incar(UserDict, MSONable):
         lower_str_keys = ("ML_MODE",)
         # String keywords to read "as is" (no case transformation, only stripped)
         as_is_str_keys = ("SYSTEM", "WANNIER90_WIN")
-        multiline_str_keys = ("LOCPROJ",) # <-- Modified
+        multiline_str_keys = ("LOCPROJ","WANNIER90_WIN") # <-- Modified
 
         try:
             if key in lower_str_keys:
@@ -1154,7 +1197,10 @@ class Incar(UserDict, MSONable):
             
             if key in multiline_str_keys:
                 # really just LOCPROJ tag
-                return cls.parse_locproj(val)
+                if key == 'LOCPROJ':
+                    return cls.parse_locproj(val)
+                if key == 'WANNIER90_WIN':
+                    pass
                 # pattern = re.compile(r"(\d+(?:\s+\d+)*)\s*:\s*(" + "|".join(map(re.escape, cls.LOCPROJ_YLM_SPECS)) + r")\s*:\s*(" + "|".join(map(re.escape, cls.LOCPROJ_RADIAL_SPECS)) + r")", re.IGNORECASE)
                 # results = []
                 # for match in pattern.finditer(val):
