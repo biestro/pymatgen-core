@@ -819,6 +819,9 @@ class Incar(UserDict, MSONable):
         "Ps", "Pr", "Hy"
     )
 
+    W90_PARAMS_TYPE = {'exclude_bands': str, 'kmesh_tol': float, 'write_hr': bool, 'write_xyz': bool, 'guiding_centres': bool}
+
+
     def __init__(self, params: Mapping[str, Any] | None = None) -> None:
         """
         Clean up params and create an Incar object.
@@ -1055,14 +1058,13 @@ class Incar(UserDict, MSONable):
     def parse_wannier90_win(cls, value: str) -> str:
         """ parses WANNIER90_WIN tag"""
 
-        W90_PARAMS_TYPE = {'exclude_bands': str, 'kmesh_tol': float, 'write_hr': bool, 'write_xyz': bool, 'guiding_centres': bool}
 
         if not isinstance(value, str):
             if isinstance(value, dict):
                 w90_split = {}
                 for key, val in value.items():
                     key = key.replace(" ", "")
-                    w90_split[key] = W90_PARAMS_TYPE[key](val)
+                    w90_split[key] = cls.W90_PARAMS_TYPE[key](val)
                 return w90_split
             else:
 
@@ -1082,7 +1084,7 @@ class Incar(UserDict, MSONable):
             # parse the value from each line
             key, val = line.split("=")
             key = key.replace(" ", "")
-            val_parsed = W90_PARAMS_TYPE[key](val)
+            val_parsed = cls.W90_PARAMS_TYPE[key](val)
             w90_split[key] = val_parsed
 
             
