@@ -825,6 +825,8 @@ class Incar(UserDict, MSONable):
         'write_hr': bool, 
         'write_xyz': bool, 
         'guiding_centres': bool,
+        'dis_num_iter': int,
+        'num_iter': int,
         'dis_win_min': float,
         'dis_win_max': float,
         'dis_froz_min': float,
